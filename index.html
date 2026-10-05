@@ -25,6 +25,17 @@ html,body{margin:0;height:100%;overscroll-behavior:none;-webkit-touch-callout:no
 #rot b{color:#19e3ff;font-size:26px} #rot button{border:0;border-radius:14px;padding:14px 26px;font:700 18px system-ui;background:#2a2362;color:#eef3ff}
 #hell{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:2;background:radial-gradient(ellipse at 50% 60%,rgba(120,0,0,0) 35%,rgba(160,10,0,.55) 100%)}
 #boot{white-space:pre-line;text-align:center;position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#05030f;font-size:22px;letter-spacing:.2em;color:#19e3ff;z-index:5}
+#warn{position:fixed;inset:0;z-index:20;display:flex;background:#07020c;padding:18px;box-sizing:border-box;overflow:auto}
+#warn .box{max-width:620px;margin:auto;text-align:center;line-height:1.45}
+#warn h1{margin:0 0 6px;font-size:clamp(22px,5vw,34px);letter-spacing:.12em;color:#ffcf40}
+#warn .ic{font-size:clamp(40px,10vw,64px);color:#ff3a2a;margin-bottom:4px}
+#warn p{margin:10px 0;font-size:clamp(14px,3.4vw,18px);color:#e9defa}
+#warn p b{color:#fff}
+#warn button{font:inherit;font-weight:800;letter-spacing:.06em;border:0;border-radius:12px;padding:14px 26px;margin:8px 6px 0;font-size:clamp(15px,3.6vw,19px);cursor:pointer;-webkit-user-select:none;user-select:none}
+#warn #wgo{background:#19e3ff;color:#06041a}
+#warn #wsafe{background:transparent;color:#cfe;border:2px solid #4a8}
+#warn small{display:block;margin-top:14px;color:#a99bc4;font-size:clamp(11px,2.8vw,13px)}
+@media (max-height:560px){#warn .ic{display:none}#warn h1{font-size:19px}#warn p{font-size:12.5px;margin:6px 0}#warn button{padding:9px 18px;font-size:14px;margin-top:6px}#warn small{margin-top:8px}}
 </style>
 </head>
 <body>
@@ -34,9 +45,21 @@ html,body{margin:0;height:100%;overscroll-behavior:none;-webkit-touch-callout:no
 <button id="tfire">FIRE</button><button id="tpause">II</button><button id="tod">★</button><button id="tfs" aria-label="Full screen">⛶</button>
 <div id="hell"></div>
 <div id="rot"><b>Rotate your phone</b><div>DMT Surf plays best in landscape</div><button id="rotgo">Play anyway</button></div>
+<div id="warn" role="alertdialog" aria-labelledby="wh"><div class="box"><div class="ic">&#9888;</div><h1 id="wh">STROBE &amp; FLASHING WARNING</h1>
+<p>This game has <b>flashing and strobing lights</b>, rapid colour changes, pulsing tunnels and fast motion. These can trigger <b>seizures in people with photosensitive epilepsy</b>, even if they have never had one.</p>
+<p>In VR it can also cause <b>dizziness, nausea or disorientation</b>. <b>Stop playing straight away</b> if you feel unwell, see odd visual effects, or get headaches, and take a break at least every 30 minutes.</p>
+<p>If you or anyone in your family has epilepsy or a seizure history, talk to a doctor before playing. There are comfort options in <b>Settings &rsaquo; Comfort</b> (reduce flashing, reduce motion, steady horizon).</p>
+<button id="wgo">I UNDERSTAND &ndash; CONTINUE</button><br><button id="wsafe">Continue with reduced flashing &amp; motion</button>
+<small>You will see this every time the game starts.</small></div></div>
 <div id="boot">LOADING</div>
 <script>
 window.__bootT=Date.now();
+(function(){var w=document.getElementById('warn');function close(){if(w&&w.parentNode)w.parentNode.removeChild(w);window.__warned=1}
+function safe(){try{var k='dmtsurf.settings',o={};try{o=JSON.parse(localStorage.getItem(k)||'{}')||{}}catch(e){}o.cFlash=true;o.cMotion=true;localStorage.setItem(k,JSON.stringify(o))}catch(e){}try{if(typeof Settings!=='undefined'){Settings.cFlash=true;Settings.cMotion=true;if(typeof saveSettings==='function')saveSettings()}}catch(e){}}
+document.getElementById('wgo').onclick=close;document.getElementById('wsafe').onclick=function(){safe();close()};
+addEventListener('keydown',function(e){if(w&&w.parentNode&&(e.key==='Enter'||e.key===' ')&&e.target.tagName!=='BUTTON'){e.preventDefault();close()}},true);
+})();
+
 addEventListener('error',function(e){var b=document.getElementById('boot');if(b&&!window.__started){b.style.whiteSpace='pre-wrap';b.style.fontSize='13px';b.style.padding='18px';b.style.letterSpacing='0';b.textContent='Could not start:\n'+(e.message||'script error')+'\n'+(e.lineno?('line '+e.lineno+':'+e.colno):'')+'\n'+(e.filename?'':'');try{fetch(location.href).then(function(r){return r.text()}).then(function(t){var L=t.split('\n')[(e.lineno||1)-1]||'';var c=e.colno||1;b.textContent+='\n\n'+L.slice(Math.max(0,c-70),c+40)}).catch(function(){})}catch(x){}}});
 setTimeout(function(){var b=document.getElementById('boot');if(b&&!window.__started&&b.textContent==='LOADING')b.textContent='LOADING\nunpacking game data...'},4000);
 </script>
@@ -238,6 +261,23 @@ function refineGrid(tempo, onsets) {
   }
   phase = ((phase % period) + period) % period;
   tempo.bpm = 60 / period; tempo.phase = phase;
+}
+
+// A beat map that follows the music instead of a ruler: start from the fitted grid and let every strong low onset near a predicted beat nudge
+// the next ones (a phase-locked loop). On machine-steady tracks it equals the grid; with a live drummer, rubato or a tempo change it keeps the
+// visual pulse on the actual hits. Returns beat times in seconds.
+function buildBeats(a) {
+  const P0 = 60 / a.bpm, dur = a.dur || 0, on = a.onsets || [], strong = [];
+  for (const o of on) if (o.s >= 0.4 && o.lo >= 0.3) strong.push(o);
+  if (!(P0 > 0.2) || !(P0 < 1.5) || strong.length < 12) return null;
+  const beats = []; let per = P0, t = a.phase - Math.ceil(a.phase / P0) * P0, j = 0;
+  while (t < dur + per) {
+    const tol = 0.14 * per; while (j < strong.length && strong[j].t < t - tol) j++;
+    let best = null, bd = 1e9; for (let q = j; q < strong.length && strong[q].t <= t + tol; q++) { const d = Math.abs(strong[q].t - t) / (0.5 + strong[q].s); if (d < bd) { bd = d; best = strong[q]; } }
+    if (best) { const err = best.t - t; t += 0.55 * err; per = clamp(per + 0.14 * err, P0 * 0.82, P0 * 1.2); }
+    beats.push(t); t += per;
+  }
+  return beats;
 }
 
 async function analyzeTrack(buffer, onProgress) {
@@ -1306,7 +1346,7 @@ const Game = {
       // ship follows the target with a capped speed (so lane moves read as physical)
       if (Queue.run && !Queue.pre && this.a && this.songT > this.a.dur - 30 && Queue.upcoming()) { const nx = Queue.upcoming(); Queue.pre = Library.getBuffer(nx).then(b => ({ it: nx, buf: b })).catch(() => null); }
       { let rb = 0, bl = 0; for (const s of this.surges) { const dt0 = this.songT - s.t;
-          if (dt0 > -1.8 && dt0 < 0) bl = Math.max(bl, (1 + dt0 / 1.8) * s.s);                                       // the riser: tension builds in the last 1.8 s
+          if (dt0 > -3.2 && dt0 < 0) bl = Math.max(bl, Math.pow(1 + dt0 / 3.2, 1.6) * s.s);                              // the riser: tension builds over the last 3 seconds, steeply at the end
           else if (dt0 >= 0 && dt0 < 4.5) { rb = Math.max(rb, s.s * Math.exp(-dt0 * 0.85)); if (!s.fired && dt0 < 0.5) { s.fired = true; this.emit({ k: 'drop', s: s.s }); this.flash = Math.max(this.flash, 0.5 * s.s); this.shake = Math.max(this.shake, 0.35 * s.s); } } }
         const hy = clamp((this.intensity - 0.5) * 1.8, 0, 1) * 0.5;                                                    // a lingering lift for as long as the music stays big
         this.build += (bl - this.build) * Math.min(1, dt * 6); this.hype += (hy - this.hype) * Math.min(1, dt * 1.2); this.rush = Math.max(rb, this.hype) ; }
@@ -3458,7 +3498,12 @@ const R = {
     { const rs = Settings.cMotion || Settings.cSteady ? 0 : g.rush; this.rushT = ((this.rushT || 0) + dt * speed * (0.55 * rs + 0.25 * (g.build || 0))) % 100000; }
     const travel = songT * speed + (this.rushT || 0);                                  // scenery runs faster than the notes in a rush: pure sensation of speed
     const bpm = A ? A.bpm : 124, phase = A ? A.phase : 0, period = 60 / bpm;
-    const bf = (((songT - phase) / period) % 1 + 1) % 1, pulse = Math.exp(-bf * 5.5);
+    if (A && A.beats === undefined) A.beats = (A.nF && A.onsets) ? buildBeats(A) : null;                 // adaptive beat map (built once per track)
+    let bf = (((songT - phase) / period) % 1 + 1) % 1, lph = phase, lpd = period;
+    { const B = A && A.beats; if (B && B.length > 4 && songT >= B[0] && songT < B[B.length - 1]) {
+        let i = this._bi | 0; if (i < 0 || i >= B.length - 1 || B[i] > songT || B[i + 1] <= songT) { let lo = 0, hi = B.length - 2; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (B[m] <= songT) lo = m; else hi = m - 1; } i = lo; }
+        this._bi = i; lph = B[i]; lpd = clamp(B[i + 1] - B[i], 0.25, 1.2); bf = clamp((songT - lph) / lpd, 0, 1); } }
+    const pulse = Math.exp(-bf * 5.5);
     this.pulse = pulse;
     // ---- live hit envelopes from the pre-scan: real kicks and snares drive the visuals, the beat grid is only the fallback ----
     let kickE = 0, snapE = 0;
@@ -3473,7 +3518,7 @@ const R = {
     if (snapE > 0.85 && this.snap <= 0.85 && g.state === 'playing') this.burst((Math.random() - 0.5) * 4, 5, [this.curTheme.a2.x, this.curTheme.a2.y, this.curTheme.a2.z], 1.3, 1.6);
     this.kick = kickE; this.snap = snapE;
     const T = QUALITY_TIERS[this.quality], E = this.energyLane, inXR = !!UI.xr;
-    const now = U.uTime.value = performance.now() * 0.001; U.uBeat.value = (Settings.cFlash ? 0.4 : 1) * Math.min(1.3, 0.34 * pulse * (0.45 + 0.55 * g.intensity) + 0.8 * kickE + 0.4 * snapE); U.uPeriod.value = period; U.uPhase.value = phase; U.uInt.value = g.intensity + 0.45 * g.bt; U.uRush.value = (Settings.cFlash ? 0.5 : 1) * Math.min(1.2, (g.rush || 0) * 0.9 + (g.build || 0) * 0.3);
+    const now = U.uTime.value = performance.now() * 0.001; U.uBeat.value = (Settings.cFlash ? 0.4 : 1) * Math.min(1.3, (0.34 * pulse * (0.45 + 0.55 * g.intensity) + 0.8 * kickE + 0.4 * snapE) * (1 - 0.6 * clamp(((g.build || 0) - 0.7) / 0.3, 0, 1)) + 0.5 * (this.dropE || 0)); U.uPeriod.value = lpd; U.uPhase.value = lph; U.uInt.value = g.intensity + 0.45 * g.bt; U.uRush.value = (Settings.cFlash ? 0.5 : 1) * Math.min(1.2, (g.rush || 0) * 0.9 + (g.build || 0) * 0.3);
     U.uTick.value = g.chart ? g.chart.tickDt : 0.12;
     this.od += ((g.odActive ? 1 : 0) - this.od) * Math.min(1, dt * 4); U.uOD.value = this.od;
     if (!!g.saber !== this._sbA) { this._sbA = !!g.saber; this._fpA = undefined; }
@@ -3516,18 +3561,20 @@ const R = {
     this.side = (this.side - speed * Math.sin(g.heading) * dt) % 3600; U.uSide.value = this.side;
 
     // ---- palette: every section of every song gets its own colour world, drifting slowly round the colour wheel ----
-    const pk = g.track ? g.track.key : 'menu', hs = this.hAcc + 0.05 * Math.sin(now * 0.37), pal0 = S.horror ? horrorPalette(pk, g.track ? g.secIdx : sc.cur, S.unc) : paletteFor(pk, g.track ? g.secIdx : sc.cur, hs), k = Math.min(1, dt * (1.1 + 4 * this.hl)), c = this.curTheme;
+    const pk = g.track ? g.track.key : 'menu', hs = this.hAcc + 0.05 * Math.sin(now * 0.37), pal0 = S.horror ? horrorPalette(pk, g.track ? g.secIdx : sc.cur, S.unc) : paletteFor(pk, g.track ? g.secIdx : sc.cur, hs), k = Math.min(1, dt * (1.1 + 4 * this.hl + ((g.build || 0) > 0.05 || (this.dropE || 0) > 0.05 ? 7 : 0))), c = this.curTheme;
     let pal = pal0;
-    const spw = this.od * 0.55;
-    if (this.hl > 0.01 || this.sv > 0.5 || spw > 0.01) {                                                // streak glory pulls the world toward gold and white; a broken streak drowns it in blood
+    const spw = this.od * 0.55, fkk0 = Settings.cFlash ? 0.6 : 1;
+    this.dropE = Math.max(0, (this.dropE || 0) - dt * 0.85);
+    const fkk = Settings.cFlash ? 0.35 : 1, tw = g.state === 'playing' ? clamp((g.build || 0), 0, 1) : 0, dfe = (this.dropE || 0) * fkk;      // before a drop the world dims and closes in, then the drop blows it open
+    if (this.hl > 0.01 || this.sv > 0.5 || spw > 0.01 || tw > 0.02 || dfe > 0.02) {                                                // streak glory pulls the world toward gold and white; a broken streak drowns it in blood
       pal = {}; const gw = clamp((this.sv - 0.4) / 0.6, 0, 1) * 0.5, hw = this.hl;
-      for (const q of ['hz', 'zn', 'a1', 'a2', 'gr']) { const p0 = pal0[q], G = GLORY_PAL[q], H = HELL_PAL[q]; pal[q] = [0, 1, 2].map((i) => { let v = p0[i] + (G[i] - p0[i]) * gw; v += (STAR_PAL[q][i] - v) * spw; return v + (H[i] - v) * hw; }); }
+      for (const q of ['hz', 'zn', 'a1', 'a2', 'gr']) { const p0 = pal0[q], G = GLORY_PAL[q], H = HELL_PAL[q]; pal[q] = [0, 1, 2].map((i) => { let v = p0[i] + (G[i] - p0[i]) * gw; v += (STAR_PAL[q][i] - v) * spw; v = v + (H[i] - v) * hw; if (tw > 0.02) v *= 1 - tw * (q === 'a1' || q === 'a2' ? 0.4 : 0.7) * fkk0; if (dfe > 0.02) v += (1.15 - v) * dfe * (q === 'zn' || q === 'gr' ? 0.3 : 0.55); return v; }); }
     }
     const mixv = (v, a) => { v.x += (a[0] - v.x) * k; v.y += (a[1] - v.y) * k; v.z += (a[2] - v.z) * k; };
     mixv(c.hz, pal.hz); mixv(c.zn, pal.zn); mixv(c.a1, pal.a1); mixv(c.a2, pal.a2); mixv(c.gr, pal.gr);
     U.uFogColor.value.set(c.hz.x * 0.42 + c.zn.x * 0.3, c.hz.y * 0.42 + c.zn.y * 0.3, c.hz.z * 0.42 + c.zn.z * 0.3);
     if (this.hl > 0.01) { const f = U.uFogColor.value, h = this.hl * 0.6; f.set(f.x + (0.22 - f.x) * h, f.y * (1 - h), f.z * (1 - h)); }
-    U.uFogNear.value = 40 * (1 - 0.45 * this.hl); U.uFogFar.value = 150 * (1 - 0.3 * this.hl);
+    U.uFogNear.value = 40 * (1 - 0.45 * this.hl - 0.5 * tw * fkk0) * (1 + 0.5 * dfe); U.uFogFar.value = 150 * (1 - 0.3 * this.hl - 0.3 * tw * fkk0) * (1 + 0.35 * dfe);
     { const hd = this._hd === undefined ? (this._hd = document.getElementById('hell')) : this._hd; if (hd) { const o = Math.round((Settings.cCalm ? 0 : this.hl) * 100) / 100; if (o !== this._ho) { this._ho = o; hd.style.opacity = o; } } }
     U.uRush.value = Math.max(U.uRush.value, this.od * 0.45, (this.whE || 0) * 0.9, this.sv * 0.5 * (Settings.cFlash ? 0.5 : 1));
     if (g.state === 'playing') {
@@ -3770,7 +3817,7 @@ const R = {
       else if (ev.k === 'holdend') this.burst(ev.x, 24, [1, 0.85, 0.3], 1.6, 2.4);
       else if (ev.k === 'bad') this.burst(ev.x, 22, [1, 0.12, 0.12], 2.2, 2.4);
       else if (ev.k === 'smash') this.burst(ev.x, 18, [1, 0.5, 0.2], 2.0, 2.2);
-      else if (ev.k === 'drop') { const cc = [c.a1.x * 0.6 + 0.5, c.a1.y * 0.6 + 0.5, c.a1.z * 0.6 + 0.5]; this.burst(0, 90, cc, 6.0, 4.0); this.burst(-2, 30, [c.a2.x, c.a2.y, c.a2.z], 4.0, 3.0); this.burst(2, 30, [c.a2.x, c.a2.y, c.a2.z], 4.0, 3.0); this.ring(0, 0.5, SHIP_Z - 4, cc); }
+      else if (ev.k === 'drop') { const cc = [c.a1.x * 0.6 + 0.5, c.a1.y * 0.6 + 0.5, c.a1.z * 0.6 + 0.5]; this.dropE = 1; this.ring(0, 0.5, SHIP_Z - 6, [1.4, 1.4, 1.4], 4, 0.9); this.ring(0, 0.5, SHIP_Z - 4, cc, 8, 1.4); this.burst(0, 90, cc, 6.0, 4.0); this.burst(-2, 30, [c.a2.x, c.a2.y, c.a2.z], 4.0, 3.0); this.burst(2, 30, [c.a2.x, c.a2.y, c.a2.z], 4.0, 3.0); this.ring(0, 0.5, SHIP_Z - 4, cc); }
       else if (ev.k === 'power') this.burst(g.lat, 40, [0.4, 0.9, 1.0], 3.2, 3.0);
       else if (ev.k === 'scene') { if (SCENES[ev.i] && SCENES[ev.i].horror && !SCENES[ev.i].unc && g.state === 'playing' && !Settings.cCalm) AudioEng.boom(); this.burst(0, 50, [c.a1.x, c.a1.y, c.a1.z], 4.0, 3.0); }
     }
@@ -3790,7 +3837,7 @@ const R = {
     // ---- ship (banks into the turns), halo, trail ----
     const bob = 0.04 * Math.sin(now * 3), roll = clamp(-g.latVel * 0.07 - g.kappa * 60, -0.7, 0.7);
     this.ship.scale.setScalar(1.6); this.altV = g.alt || 0; this.ship.position.set(sxw, 0.32 + bob + this.altV * HI_Y, SHIP_Z); this.ship.rotation.z = roll; this.ship.rotation.x = 0.0;
-    const hs2 = 1 + 0.25 * pulse + 0.5 * this.od; this.halo.position.set(sxw, 0.03, SHIP_Z); this.halo.scale.set(hs2 * (1 + 0.5 * this.altV), hs2 * (1 + 0.5 * this.altV), hs2);       // the ring on the road is your shadow when you fly
+    const hs2 = 1 + 0.25 * pulse + 0.5 * this.od + 0.35 * this.kick + 0.15 * this.low; { const k = clamp(this.high / (this.low + this.high + 0.15), 0, 1), c1 = this.curTheme ? this.curTheme.a1 : { x: 0.2, y: 0.87, z: 1 }, c2 = this.curTheme ? this.curTheme.a2 : { x: 1, y: 0.4, z: 0.9 }; this.halo.material.color.setRGB(0.2 + (c1.x * (1 - k) + c2.x * k) * 0.8, 0.5 + (c1.y * (1 - k) + c2.y * k) * 0.5, 0.7 + (c1.z * (1 - k) + c2.z * k) * 0.3); } this.halo.position.set(sxw, 0.03, SHIP_Z); this.halo.scale.set(hs2 * (1 + 0.5 * this.altV), hs2 * (1 + 0.5 * this.altV), hs2);       // the ring on the road is your shadow when you fly
     this.halo.material.color.setRGB(c.a1.x * (1 - this.od) + 1.0 * this.od, c.a1.y * (1 - this.od) + 0.85 * this.od, c.a1.z * (1 - this.od) + 0.3 * this.od);
     const tl2 = this.trailLat; for (let i = this.TN - 1; i > 0; i--) tl2[i] = tl2[i - 1]; tl2[0] = g.lat;
     const tp = this.trailMesh.geometry.attributes.position.array, tc = this.trailMesh.geometry.attributes.color.array;
