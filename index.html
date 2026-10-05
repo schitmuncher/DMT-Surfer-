@@ -25,6 +25,17 @@ html,body{margin:0;height:100%;overscroll-behavior:none;-webkit-touch-callout:no
 #rot b{color:#19e3ff;font-size:26px} #rot button{border:0;border-radius:14px;padding:14px 26px;font:700 18px system-ui;background:#2a2362;color:#eef3ff}
 #hell{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:2;background:radial-gradient(ellipse at 50% 60%,rgba(120,0,0,0) 35%,rgba(160,10,0,.55) 100%)}
 #boot{white-space:pre-line;text-align:center;position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#05030f;font-size:22px;letter-spacing:.2em;color:#19e3ff;z-index:5}
+#warn{position:fixed;inset:0;z-index:20;display:flex;background:#07020c;padding:18px;box-sizing:border-box;overflow:auto}
+#warn .box{max-width:620px;margin:auto;text-align:center;line-height:1.45}
+#warn h1{margin:0 0 6px;font-size:clamp(22px,5vw,34px);letter-spacing:.12em;color:#ffcf40}
+#warn .ic{font-size:clamp(40px,10vw,64px);color:#ff3a2a;margin-bottom:4px}
+#warn p{margin:10px 0;font-size:clamp(14px,3.4vw,18px);color:#e9defa}
+#warn p b{color:#fff}
+#warn button{font:inherit;font-weight:800;letter-spacing:.06em;border:0;border-radius:12px;padding:14px 26px;margin:8px 6px 0;font-size:clamp(15px,3.6vw,19px);cursor:pointer;-webkit-user-select:none;user-select:none}
+#warn #wgo{background:#19e3ff;color:#06041a}
+#warn #wsafe{background:transparent;color:#cfe;border:2px solid #4a8}
+#warn small{display:block;margin-top:14px;color:#a99bc4;font-size:clamp(11px,2.8vw,13px)}
+@media (max-height:560px){#warn .ic{display:none}#warn h1{font-size:19px}#warn p{font-size:12.5px;margin:6px 0}#warn button{padding:9px 18px;font-size:14px;margin-top:6px}#warn small{margin-top:8px}}
 </style>
 </head>
 <body>
@@ -34,9 +45,21 @@ html,body{margin:0;height:100%;overscroll-behavior:none;-webkit-touch-callout:no
 <button id="tfire">FIRE</button><button id="tpause">II</button><button id="tod">★</button><button id="tfs" aria-label="Full screen">⛶</button>
 <div id="hell"></div>
 <div id="rot"><b>Rotate your phone</b><div>DMT Surf plays best in landscape</div><button id="rotgo">Play anyway</button></div>
+<div id="warn" role="alertdialog" aria-labelledby="wh"><div class="box"><div class="ic">&#9888;</div><h1 id="wh">STROBE &amp; FLASHING WARNING</h1>
+<p>This game has <b>flashing and strobing lights</b>, rapid colour changes, pulsing tunnels and fast motion. These can trigger <b>seizures in people with photosensitive epilepsy</b>, even if they have never had one.</p>
+<p>In VR it can also cause <b>dizziness, nausea or disorientation</b>. <b>Stop playing straight away</b> if you feel unwell, see odd visual effects, or get headaches, and take a break at least every 30 minutes.</p>
+<p>If you or anyone in your family has epilepsy or a seizure history, talk to a doctor before playing. There are comfort options in <b>Settings &rsaquo; Comfort</b> (reduce flashing, reduce motion, steady horizon).</p>
+<button id="wgo">I UNDERSTAND &ndash; CONTINUE</button><br><button id="wsafe">Continue with reduced flashing &amp; motion</button>
+<small>You will see this every time the game starts.</small></div></div>
 <div id="boot">LOADING</div>
 <script>
 window.__bootT=Date.now();
+(function(){var w=document.getElementById('warn');function close(){if(w&&w.parentNode)w.parentNode.removeChild(w);window.__warned=1}
+function safe(){try{var k='dmtsurf.settings',o={};try{o=JSON.parse(localStorage.getItem(k)||'{}')||{}}catch(e){}o.cFlash=true;o.cMotion=true;localStorage.setItem(k,JSON.stringify(o))}catch(e){}try{if(typeof Settings!=='undefined'){Settings.cFlash=true;Settings.cMotion=true;if(typeof saveSettings==='function')saveSettings()}}catch(e){}}
+document.getElementById('wgo').onclick=close;document.getElementById('wsafe').onclick=function(){safe();close()};
+addEventListener('keydown',function(e){if(w&&w.parentNode&&(e.key==='Enter'||e.key===' ')&&e.target.tagName!=='BUTTON'){e.preventDefault();close()}},true);
+})();
+
 addEventListener('error',function(e){var b=document.getElementById('boot');if(b&&!window.__started){b.style.whiteSpace='pre-wrap';b.style.fontSize='13px';b.style.padding='18px';b.style.letterSpacing='0';b.textContent='Could not start:\n'+(e.message||'script error')+'\n'+(e.lineno?('line '+e.lineno+':'+e.colno):'')+'\n'+(e.filename?'':'');try{fetch(location.href).then(function(r){return r.text()}).then(function(t){var L=t.split('\n')[(e.lineno||1)-1]||'';var c=e.colno||1;b.textContent+='\n\n'+L.slice(Math.max(0,c-70),c+40)}).catch(function(){})}catch(x){}}});
 setTimeout(function(){var b=document.getElementById('boot');if(b&&!window.__started&&b.textContent==='LOADING')b.textContent='LOADING\nunpacking game data...'},4000);
 </script>
@@ -238,6 +261,23 @@ function refineGrid(tempo, onsets) {
   }
   phase = ((phase % period) + period) % period;
   tempo.bpm = 60 / period; tempo.phase = phase;
+}
+
+// A beat map that follows the music instead of a ruler: start from the fitted grid and let every strong low onset near a predicted beat nudge
+// the next ones (a phase-locked loop). On machine-steady tracks it equals the grid; with a live drummer, rubato or a tempo change it keeps the
+// visual pulse on the actual hits. Returns beat times in seconds.
+function buildBeats(a) {
+  const P0 = 60 / a.bpm, dur = a.dur || 0, on = a.onsets || [], strong = [];
+  for (const o of on) if (o.s >= 0.4 && o.lo >= 0.3) strong.push(o);
+  if (!(P0 > 0.2) || !(P0 < 1.5) || strong.length < 12) return null;
+  const beats = []; let per = P0, t = a.phase - Math.ceil(a.phase / P0) * P0, j = 0;
+  while (t < dur + per) {
+    const tol = 0.14 * per; while (j < strong.length && strong[j].t < t - tol) j++;
+    let best = null, bd = 1e9; for (let q = j; q < strong.length && strong[q].t <= t + tol; q++) { const d = Math.abs(strong[q].t - t) / (0.5 + strong[q].s); if (d < bd) { bd = d; best = strong[q]; } }
+    if (best) { const err = best.t - t; t += 0.55 * err; per = clamp(per + 0.14 * err, P0 * 0.82, P0 * 1.2); }
+    beats.push(t); t += per;
+  }
+  return beats;
 }
 
 async function analyzeTrack(buffer, onProgress) {
@@ -827,8 +867,10 @@ function buildSegments(a, key) {
     n = Math.max(1, n); I /= n; const sum = lo + mi * 0.8 + hi + 1e-6, bass = lo / sum, bright = hi / sum;
     const mood = Settings.cCalm ? (Settings.scenes === 'happy' ? HAPPY_SCENES : (bright > 0.3 && I > 0.35 && rnd() < 0.4 ? HAPPY_SCENES : null)) : Settings.scenes === 'happy' ? HAPPY_SCENES.concat(I > 0.5 ? [] : [0, 1]) : Settings.scenes === 'uncanny' ? UNCANNY_SCENES.concat(I > 0.5 ? [19, 27] : []) :
       Settings.scenes === 'auto' && !heavy ? (bright > 0.3 && I > 0.35 && I < 0.85 && rnd() < 0.45 ? HAPPY_SCENES : I < 0.22 && rnd() < 0.4 ? [24, 26, 25] : null) : null;
-    const pool = mood ? mood : heavy && !(Settings.scenes === 'auto' && I < 0.3) ? darkPool(I, bass, bright) : I < 0.38 ? [1, 0, 7, 11, 33, 41, 44, 54, 49, 55, 63, 67, 71, 65, 62, 73, 76, 81, 82, 89] : I < 0.62 ? (bright > 0.3 ? [2, 5, 7, 6, 10, 11, 40, 46, 51, 53, 56, 42, 60, 61, 64, 66, 68, 62, 77, 73, 76, 81, 82, 84, 89, 91] : [5, 2, 6, 7, 9, 11, 48, 52, 59, 45, 46, 70, 64, 69, 61, 74, 72, 80, 77, 84, 83, 86, 91]) : (bass > 0.42 ? [6, 8, 3, 4, 9, 10, 43, 50, 57, 58, 45, 69, 66, 70, 60, 72, 74, 79, 75, 80, 83, 85, 84, 87, 88, 90, 89] : [4, 3, 8, 6, 10, 9, 43, 42, 58, 59, 57, 50, 68, 69, 66, 65, 60, 72, 78, 79, 80, 75, 74, 83, 85, 84, 86, 87, 88, 90, 91]);
-    let pick = pool[(Math.floor(rnd() * 97) + i) % pool.length]; if (pick === prev) pick = pool[(pool.indexOf(pick) + 1) % pool.length];
+    const useDark = heavy && (Settings.scenes === 'dark' || rnd() < 0.4), pool = mood ? mood : useDark && !(Settings.scenes === 'auto' && I < 0.3) ? darkPool(I, bass, bright) : I < 0.38 ? [1, 0, 7, 11, 33, 41, 44, 54, 49, 55, 63, 67, 71, 65, 62, 73, 76, 81, 82, 89, 94, 98, 99, 93, 28] : I < 0.62 ? (bright > 0.3 ? [2, 5, 7, 6, 10, 11, 40, 46, 51, 53, 56, 42, 60, 61, 64, 66, 68, 62, 77, 73, 76, 81, 82, 84, 89, 91, 92, 93, 95, 96, 97, 98, 28] : [5, 2, 6, 7, 9, 11, 48, 52, 59, 45, 46, 70, 64, 69, 61, 74, 72, 80, 77, 84, 83, 86, 91, 92, 95, 96, 97, 28, 94]) : (bass > 0.42 ? [6, 8, 3, 4, 9, 10, 43, 50, 57, 58, 45, 69, 66, 70, 60, 72, 74, 79, 75, 80, 83, 85, 84, 87, 88, 90, 89, 92, 96, 97, 95, 28] : [4, 3, 8, 6, 10, 9, 43, 42, 58, 59, 57, 50, 68, 69, 66, 65, 60, 72, 78, 79, 80, 75, 74, 83, 85, 84, 86, 87, 88, 90, 91, 92, 96, 97, 95, 28, 99]);
+    let pick = pool[(Math.floor(rnd() * 97) + i) % pool.length];
+    if (Settings.scenes === 'auto' && !mood && !useDark && DARK_SCENES.includes(pick) && rnd() < 0.7) { const safe = pool.filter(q => !DARK_SCENES.includes(q)); if (safe.length) pick = safe[(Math.floor(rnd() * 89) + i) % safe.length]; }          // scary worlds are the exception, not the rule
+    if (pick === prev) pick = pool[(pool.indexOf(pick) + 1) % pool.length];
     if (Settings.cCalm && SCENES[pick] && SCENES[pick].scary) pick = HAPPY_SCENES[(i * 5 + 3) % HAPPY_SCENES.length];          // gentle scenes: no demons
     scenes.push(pick); prev = pick; infos.push({ t0, t1, I, bass, bright });
     turn.push((i % 2 ? 1 : -1) * (rnd() < 0.22 ? -1 : 1));
@@ -1024,7 +1066,8 @@ const Game = {
     this.manualT = 0; this.lastIn = Input.target;
     this.surges = (this.journey ? [] : buildSurges(this.a)); this.rush = 0; this.build = 0; this.hype = 0; this.rushT = 0;
     this.flight = !!Settings.flight && !this.saber && !this.journey; this.alt = 0;
-    if (this.flight && this.chart.notes.length) addAltLayer(this.chart, seg.infos, diff, track.key);
+    if (this.flight && this.chart.notes.length) { addAltLayer(this.chart, seg.infos, diff, track.key);
+      for (const n of this.chart.notes) if (n.hi && this.rolls.some(e => n.t > e.t0 - 1.5 && n.t < e.t1 + 1.5)) n.hi = 0; }          // nothing floats high while the world is flipping or upside down
     this.markStar(track.key); this.planBosses(seg.infos, track.key, diff);
     if (!this.saber && !this.journey && this.chart.notes.length) this.chart.maxScore = chartMax(this.chart);
     this.notes = this.chart.notes; this.buildRoadW(this.a);
@@ -1293,7 +1336,7 @@ const Game = {
     if (this.state === 'playing' && this.songT > 0) {                      // guitar-hero streak: tiers build the glory, a broken streak drops you into the depths (visual only: nothing is ever lost)
       const cb = this.combo | 0, tier = cb >= 100 ? 4 : cb >= 50 ? 3 : cb >= 25 ? 2 : cb >= 10 ? 1 : 0;
       if (tier > this.stk) { this.tierPop = 1; this.tierName = STREAK_NAMES[tier]; if (this.hellT > 0) this.hellT = Math.min(this.hellT, 0.8); this.emit({ k: 'tier', tier }); }
-      if (cb === 0 && this.pc >= 10) { this.hellDur = this.hellT = clamp(3.5 + this.pc * 0.05, 3.5, 8); this.emit({ k: 'hell', from: this.pc }); }
+      if (cb === 0 && this.pc >= 35 && this.songT - (this.lastHell || -99) > 45) { this.lastHell = this.songT; this.hellDur = this.hellT = clamp(2.5 + this.pc * 0.03, 2.5, 5); this.emit({ k: 'hell', from: this.pc }); }      // only a long streak (35+) falling apart, and at most once in 45 s
       this.stk = tier; this.pc = cb; if (this.phrases && this.phrases.length) this.starTick();
       if (this.drive) this.bossTick(dt);
       if (this.hellT > 0) { this.hellT -= dt * (cb >= 5 ? 2.5 : 1); if (cb >= 12) this.hellT = 0; }
@@ -1306,7 +1349,7 @@ const Game = {
       // ship follows the target with a capped speed (so lane moves read as physical)
       if (Queue.run && !Queue.pre && this.a && this.songT > this.a.dur - 30 && Queue.upcoming()) { const nx = Queue.upcoming(); Queue.pre = Library.getBuffer(nx).then(b => ({ it: nx, buf: b })).catch(() => null); }
       { let rb = 0, bl = 0; for (const s of this.surges) { const dt0 = this.songT - s.t;
-          if (dt0 > -1.8 && dt0 < 0) bl = Math.max(bl, (1 + dt0 / 1.8) * s.s);                                       // the riser: tension builds in the last 1.8 s
+          if (dt0 > -3.2 && dt0 < 0) bl = Math.max(bl, Math.pow(1 + dt0 / 3.2, 1.6) * s.s);                              // the riser: tension builds over the last 3 seconds, steeply at the end
           else if (dt0 >= 0 && dt0 < 4.5) { rb = Math.max(rb, s.s * Math.exp(-dt0 * 0.85)); if (!s.fired && dt0 < 0.5) { s.fired = true; this.emit({ k: 'drop', s: s.s }); this.flash = Math.max(this.flash, 0.5 * s.s); this.shake = Math.max(this.shake, 0.35 * s.s); } } }
         const hy = clamp((this.intensity - 0.5) * 1.8, 0, 1) * 0.5;                                                    // a lingering lift for as long as the music stays big
         this.build += (bl - this.build) * Math.min(1, dt * 6); this.hype += (hy - this.hype) * Math.min(1, dt * 1.2); this.rush = Math.max(rb, this.hype) ; }
@@ -1349,8 +1392,8 @@ const Game = {
       if (sI !== this.secIdx) { this.secIdx = sI; this.sceneIdx = this.secScene[Math.min(sI, this.secScene.length - 1)]; this.sceneFlash = 3.2; this.turnDir = this.secTurn[Math.min(sI, this.secTurn.length - 1)]; this.emit({ k: 'scene', i: this.sceneIdx }); }
     } else if (!a) {
       const t = performance.now() * 0.001;
-      this.songT = t; this.intensity += (0.55 + 0.3 * Math.sin(t * 0.21) - this.intensity) * Math.min(1, dt);
-      const si = MENU_SCENES[Math.floor(t / 11) % MENU_SCENES.length]; if (si !== this.sceneIdx) { this.sceneIdx = si; this.sceneFlash = 0; }
+      this.songT = t; this.intensity += (0.22 + 0.05 * Math.sin(t * 0.15) - this.intensity) * Math.min(1, dt * 0.5);
+      const si = MENU_SCENES[Math.floor(t / 40) % MENU_SCENES.length]; if (si !== this.sceneIdx) { this.sceneIdx = si; this.sceneFlash = 0; }
     }
     { const tt = this.songT; this.kappa = TrackShape.curv(tt + 0.5); this.slope0 = TrackShape.slope(tt); this.cx = this.kappa * 0.5; this.cy = 0; }
     this.heading += (this.kappa * (this.speed || 20) * 0.65 - this.heading * 0.04) * dt; this.heading = clamp(this.heading, -1.3, 1.3);
@@ -1397,7 +1440,7 @@ const SCENES = [
   { name: 'SMILES',    sky: 25, gm: 4, sides: 40, gs: 1,   spin: -0.1, pil: 3, mount: 0.0, tube: 0, horror: 1, unc: 1 },
   { name: 'FAIRGROUND', sky: 26, gm: 2, sides: 40, gs: 1,  spin: 0.2,  pil: 2, mount: 0.1, tube: 0, horror: 1, unc: 1 },
   { name: 'BLOOD MOON', sky: 27, gm: 5, sides: 3,  gs: 1,   spin: 0.1,  pil: 5, mount: 0.5, tube: 0, horror: 1 },
-  { name: 'CANDY',     sky: 28, gm: 3, sides: 40, gs: 1,   spin: 0.3,  pil: 2, mount: 0.2, tube: 1, mv: 3 },
+  { name: 'XENO HIVE', sky: 28, gm: 4, sides: 6,  gs: 1,   spin: 0.3,  pil: 3, mount: 0.0, tube: 0, mv: 3 },
   { name: 'GOLDEN HOUR', sky: 29, gm: 0, sides: 40, gs: 1, spin: 0.0,  pil: 1, mount: 0.7, tube: 0 },
   { name: 'NEON CITY', sky: 30, gm: 4, sides: 4,  gs: 0.5, spin: 0.2,  pil: 3, mount: 0.0, tube: 0 },
   { name: 'CONFETTI',  sky: 31, gm: 3, sides: 6,  gs: 0.5, spin: 0.5,  pil: 2, mount: 0.2, tube: 0 },
@@ -1461,7 +1504,15 @@ const SCENES = [
   { name: 'CERBERUS GATE', sky: 72, gm: 1, sides: 40, gs: 1, spin: 0.0, pil: 4, mount: 0.1, tube: 0, mv: 2, scary: 1, cr: [['cerberus', 'hor', 1, 0, 0, 90, -6], ['jaws', 'arch', 0, 38, 0, 6.6, 1.3]] },
   { name: 'SPHINX TEMPLE', sky: 76, gm: 2, sides: 40, gs: 1, spin: 0.0, pil: 4, mount: 0.4, tube: 0, mv: 5, cr: [['sphinx', 'flank', 0, 120, 36, 30, -1, 0], ['sphinx', 'hor', 1, 0, 0, 95, -6]] },
   { name: 'ELDER GODS', sky: 74, gm: 1, sides: 40, gs: 1, spin: 0.15, pil: 4, mount: 0.0, tube: 0, mv: 6, scary: 1, cr: [['titan', 'flank', 0, 110, 30, 44, -2, 0], ['medusa', 'flank', 0, 110, 26, 36, -2, 0.5], ['seraph', 'hor', 1, 0, 0, 90, 40]] },
-  { name: 'SANDSTORM BALL', sky: 76, gm: 3, sides: 40, gs: 1, spin: 0.2, pil: 4, mount: 0.0, tube: 0, mv: 3, cr: [['dancer', 'crowd', 0, 6.5, 8.4, 2.5, 0], ['sphinx', 'hor', 1, 0, 26, 70, -5], ['phoenix', 'arch', 0, 100, 0, 18, 24]] }
+  { name: 'SANDSTORM BALL', sky: 76, gm: 3, sides: 40, gs: 1, spin: 0.2, pil: 4, mount: 0.0, tube: 0, mv: 3, cr: [['dancer', 'crowd', 0, 6.5, 8.4, 2.5, 0], ['sphinx', 'hor', 1, 0, 26, 70, -5], ['phoenix', 'arch', 0, 100, 0, 18, 24]] },
+  { name: 'TRACTOR BEAM', sky: 77, gm: 4, sides: 6, gs: 0.5, spin: 0.2, pil: 5, mount: 0.0, tube: 0, mv: 2 },
+  { name: 'RINGED WORLD', sky: 78, gm: 1, sides: 40, gs: 1, spin: 0.1, pil: 1, mount: 0.6, tube: 0, mv: 4 },
+  { name: 'SPORE FIELDS', sky: 79, gm: 1, sides: 40, gs: 1, spin: 0.15, pil: 0, mount: 0.4, tube: 0, mv: 3 },
+  { name: 'MONOLITHS', sky: 80, gm: 2, sides: 4, gs: 1, spin: 0.0, pil: 5, mount: 0.0, tube: 0, mv: 5 },
+  { name: 'GRAVITY WELL', sky: 81, gm: 3, sides: 12, gs: 0.5, spin: 0.5, pil: 4, mount: 0.0, tube: 0, mv: 6 },
+  { name: 'FIRST CONTACT', sky: 82, gm: 4, sides: 8, gs: 0.5, spin: 0.3, pil: 3, mount: 0.0, tube: 0, mv: 1 },
+  { name: 'XENO GARDEN', sky: 83, gm: 2, sides: 40, gs: 0.7, spin: 0.4, pil: 4, mount: 0.0, tube: 0, mv: 7 },
+  { name: 'ALIEN DAWN', sky: 84, gm: 0, sides: 40, gs: 1, spin: 0.05, pil: 1, mount: 0.7, tube: 0, mv: 5 }
 ];
 
 // ---- the targets: one little 3D shape per kind of world. aS marks each part: 0 = dark, 1 = the target colour, 2 = white ----
@@ -1564,7 +1615,7 @@ const LOOK = [
   [24, [0.9, 0.7, 1.3], 12, [0.6, 0.4, 1.0], 0],   [34, [1.2, 0.8, 0.4], 21, [1.0, 0.6, 0.3], 0]
 ];
 
-const BASE_SCENES = 12, MENU_SCENES = [73, 76, 82, 89, 72, 84, 86, 0, 42, 1, 44, 2, 51, 5, 40, 7, 56, 8, 54, 10, 59, 11, 46, 3, 49, 62, 65, 71, 60], DARK_SCENES = [72, 75, 78, 79, 80, 83, 85, 86, 87, 88, 90, 12, 13, 14, 15, 16, 17, 18, 19, 24, 25, 26, 27, 34, 35, 36, 37, 38, 39, 47], HAPPY_SCENES = [20, 21, 22, 23, 28, 29, 30, 31, 40, 49, 55, 61, 62, 71, 73, 76, 77, 81, 82, 84, 89, 91], UNCANNY_SCENES = [24, 25, 26, 16, 17, 47];
+const BASE_SCENES = 12, MENU_SCENES = [1, 54, 63, 67, 65, 71, 11, 0], DARK_SCENES = [72, 75, 78, 79, 80, 83, 85, 86, 87, 88, 90, 12, 13, 14, 15, 16, 17, 18, 19, 24, 25, 26, 27, 34, 35, 36, 37, 38, 39, 47], HAPPY_SCENES = [20, 21, 22, 23, 28, 29, 30, 31, 40, 49, 55, 61, 62, 71, 73, 76, 77, 81, 82, 84, 89, 91, 92, 93, 94, 95, 97, 98, 99], UNCANNY_SCENES = [24, 25, 26, 16, 17, 47];
 const PIL_STYLES = [ { w: 0.55, h: 1.0, y: 0, lat: 1.0 }, { w: 0.22, h: 1.8, y: 0, lat: 1.1 }, { w: 0.6, h: 0.35, y: 2.4, lat: 0.85 }, { w: 1.4, h: 0.5, y: 0, lat: 1.35 }, { w: 0.0, h: 0.2, y: 0, lat: 1.0 }, { w: 0.42, h: 2.3, y: 0, lat: 1.0 } ];
 const CHEAP_SKY = { 75: 42, 76: 41, 72: 42, 73: 41, 74: 3, 69: 42, 70: 41, 68: 42, 65: 3, 58: 42, 59: 42, 55: 49, 44: 42, 52: 43, 45: 41, 5: 3, 8: 2, 11: 4, 10: 9, 12: 13, 18: 14, 17: 14, 39: 14, 37: 13, 36: 13, 32: 4, 33: 3, 31: 3, 30: 3, 34: 13 };      // tiers Medium/Low swap the heaviest sky shaders for cheap ones
 function hsv(h, s, v) { h = ((h % 1) + 1) % 1; const i = Math.floor(h * 6), f = h * 6 - i, p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s); switch (i % 6) { case 0: return [v, t, p]; case 1: return [q, v, p]; case 2: return [p, v, t]; case 3: return [p, q, v]; case 4: return [t, p, v]; default: return [v, p, q]; } }
@@ -2048,12 +2099,18 @@ const R = {
         return col;
       }
 `,
-`      // 28 CANDY: a swirling lollipop sky in sugar colours; the swirl kicks outward with the beat
-      vec3 sCandy(vec2 pp, float rad, float ang) {
-        float a = ang + log(rad + 0.05) * 3.2 - uTime * 0.4 + uLow * 1.5, s = abs(fract(a / 6.2831853 * 7.0) - 0.5) * 2.0, m = smoothstep(0.42, 0.5, s);
-        vec3 c1 = 0.55 + 0.45 * grad(0.1 + uTime * 0.01), c2 = 0.6 + 0.4 * grad(0.55 + uTime * 0.01);
-        vec3 col = mix(c1, c2, m) * (0.7 + 0.35 * uBeat) + vec3(1.0) * exp(-rad * 4.0) * (0.4 + 0.5 * uBeat);
-        col += vec3(step(0.996, h21(floor(pp * 70.0 + vec2(0.0, uTime * 2.0))))) * 0.8;      // sprinkles
+`      // 28 XENO HIVE: you fly down the throat of an alien hive: wet membranes in a ring of cells that bulge and glow with the beat
+      vec3 sHive(vec2 pp, float rad, float ang) {
+        float t = uTime; vec2 p = vec2(log(rad + 0.04) * 2.2 - t * 0.12 - uLow * 0.25, ang * 1.2732395), ip = floor(p), fp = fract(p);
+        float md = 8.0, md2 = 8.0, cid = 0.0;
+        for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+          vec2 g = vec2(float(i), float(j)), cell = ip + g; cell.y = mod(cell.y, 8.0); vec2 o = vec2(h21(cell), h21(cell + 17.3)); o = 0.5 + 0.4 * sin(t * 0.6 + 6.2831853 * o);
+          vec2 r = g + o - fp; float d = dot(r, r); if (d < md) { md2 = md; md = d; cid = h21(cell + 3.1); } else if (d < md2) md2 = d;
+        }
+        float e = sqrt(md2) - sqrt(md), mem = smoothstep(0.2, 0.0, e), pul = 0.5 + 0.5 * sin(t * 2.0 + cid * 30.0) + uBeat * cid;
+        vec3 col = mix(vec3(0.02, 0.0, 0.06), grad(cid * 0.5 + t * 0.015) * 0.45, 0.5 + 0.5 * cid) * (0.4 + 0.6 * smoothstep(0.0, 0.5, rad));
+        col += grad(0.6 + cid * 0.3) * mem * 1.1 * (0.6 + 0.9 * uBeat) + vec3(0.7, 1.0, 0.6) * exp(-md * 12.0) * pul * 0.55;
+        col += vec3(0.7, 1.0, 0.8) * exp(-rad * 6.0) * (0.5 + 0.6 * uBeat);
         return col;
       }
 `,
@@ -2652,10 +2709,121 @@ const R = {
         vec2 sp = vec2(az * 14.0, el * 14.0), id = floor(sp), f = fract(sp) - 0.5; float h = h21(id); col += vec3(1.0) * step(0.95, h) * smoothstep(0.2, 0.0, length(f)) * smoothstep(0.25, 0.7, el) * (0.6 + 0.6 * uHigh);
         return col;
       }
+`,
+`      // 77 TRACTOR BEAM: a mothership hangs over the road, its rim lights chasing round, a beam of green light pouring down with specks rising in it
+      vec3 sTractor(vec2 pp, float rad, float ang) {
+        float t = uTime; vec3 col = mix(vec3(0.02, 0.0, 0.07), vec3(0.0, 0.1, 0.12), smoothstep(0.6, -0.2, pp.y));
+        vec2 sp = pp * 14.0, id = floor(sp), f = fract(sp) - 0.5; float hs = h21(id); col += vec3(0.8, 0.9, 1.0) * step(0.94, hs) * smoothstep(0.2, 0.0, length(f)) * (0.4 + 0.8 * uHigh);
+        vec2 p = pp - vec2(0.0, 0.34 + 0.03 * sin(t * 0.7 + uLow * 3.0)); float e = length(p * vec2(1.0, 3.6)), body = smoothstep(0.86, 0.82, e);
+        float dome = smoothstep(0.34, 0.3, length((p - vec2(0.0, 0.1)) * vec2(1.0, 2.0)));
+        col = mix(col, vec3(0.05, 0.06, 0.1) + vec3(0.25, 0.3, 0.4) * smoothstep(0.1, -0.2, p.y), max(body, dome));
+        float rim = smoothstep(0.05, 0.0, abs(e - 0.78)) * body, ch = pow(0.5 + 0.5 * sin(p.x * 46.0 - t * 4.0), 6.0);
+        col += mix(vec3(1.0, 0.4, 0.9), vec3(0.4, 1.0, 0.7), 0.5 + 0.5 * sin(p.x * 9.0 + t)) * rim * (0.3 + 1.6 * ch + 0.8 * uBeat);
+        float bw = 0.2 + (0.3 - pp.y) * 0.28, bx = smoothstep(bw, bw * 0.25, abs(pp.x)) * smoothstep(0.38, 0.5, 0.9 - pp.y * 0.0) * step(pp.y, 0.26);
+        bx *= 0.55 + 0.25 * sin(pp.y * 40.0 - t * 6.0) + 0.5 * uLow;
+        vec2 q = vec2(pp.x * 36.0, pp.y * 22.0 - t * 5.0), qi = floor(q), qf = fract(q) - 0.5; float ph = h21(qi);
+        col += vec3(0.4, 1.0, 0.6) * bx * 0.8 + vec3(0.8, 1.0, 0.9) * step(0.9, ph) * smoothstep(0.25, 0.0, length(qf)) * smoothstep(bw, 0.0, abs(pp.x)) * step(pp.y, 0.26) * 1.5;
+        return col;
+      }
+`,
+`      // 78 RINGED WORLD: a banded gas giant with a tilted ring and two odd moons, the bands sliding with the bass
+      vec3 sRinged(vec2 pp, float rad, float ang) {
+        float t = uTime; vec3 col = mix(vec3(0.1, 0.0, 0.18), vec3(0.0, 0.14, 0.2), smoothstep(-0.4, 0.8, pp.y + 0.2 * sin(pp.x * 2.0 + t * 0.1)));
+        col += grad(0.45 + pp.x * 0.15 + t * 0.01) * 0.18 * (0.5 + 0.5 * sin(pp.x * 3.0 + pp.y * 5.0 + t * 0.2));
+        vec2 mc = vec2(-0.25, 0.32), p = pp - mc; float r = length(p);
+        vec2 rp = vec2(p.x * 0.94 + p.y * 0.34, (p.y * 0.94 - p.x * 0.34) * 3.4); float rr = length(rp), ringM = smoothstep(0.015, 0.0, abs(rr - 0.58)) * 0.5 + smoothstep(0.1, 0.0, abs(rr - 0.74)) * 0.35 + smoothstep(0.07, 0.0, abs(rr - 0.9)) * 0.25;
+        float behind = step(0.0, rp.y);
+        if (behind > 0.5 || r > 0.36) col += grad(0.1 + rr) * ringM * 1.3 * (0.7 + 0.5 * uHigh) * (r > 0.34 ? 1.0 : 0.0);
+        float pl = smoothstep(0.36, 0.34, r); float bnd = sin(p.y * 26.0 + sin(p.x * 6.0 + t * 0.3) * 1.5 + t * 0.15 + uLow * 3.0);
+        vec3 pc = mix(grad(0.6 + bnd * 0.05) * 0.9, grad(0.15 + bnd * 0.08) * 1.1, 0.5 + 0.5 * bnd) * (0.45 + 0.6 * smoothstep(-0.36, 0.3, p.x * 0.8 - p.y * 0.6));
+        col = mix(col, pc, pl) + grad(0.4) * exp(-max(r - 0.34, 0.0) * 14.0) * 0.5 * (1.0 + uBeat);
+        if (behind < 0.5 && r < 0.4) col += grad(0.1 + rr) * ringM * 1.4 * (0.7 + 0.5 * uHigh);
+        for (int i = 0; i < 2; i++) { float fi = float(i); vec2 mp = vec2(0.45 + fi * 0.22, 0.36 - fi * 0.17 + 0.03 * sin(t * 0.3 + fi * 3.0)); float d = length(pp - mp); col = mix(col, grad(0.3 + fi * 0.4) * (0.5 + 0.8 * smoothstep(-0.05, 0.05, mp.x - pp.x)), smoothstep(0.07 + fi * 0.03, 0.06 + fi * 0.03, d)); }
+        return col;
+      }
+`,
+`      // 79 SPORE FIELDS: three layers of glowing spores drift up through a bruise-coloured fog, swelling on the beat
+      vec3 sSpores(vec2 pp, float rad, float ang) {
+        float t = uTime; vec3 col = mix(vec3(0.03, 0.0, 0.07), vec3(0.0, 0.1, 0.1), 0.5 + 0.5 * sin(pp.x * 2.2 + sin(pp.y * 3.0 + t * 0.2) * 1.4 + t * 0.1));
+        col += grad(0.5 + pp.y * 0.2 + t * 0.01) * 0.12;
+        for (int l = 0; l < 3; l++) {
+          float fl = float(l), sc = 5.0 + fl * 5.0;
+          vec2 uv = pp * sc + vec2(t * 0.08 * (fl + 1.0) + sin(t * 0.3 + fl) * 0.4, -t * (0.18 + 0.12 * fl)), id = floor(uv), f = fract(uv) - 0.5;
+          float h = h21(id + fl * 31.0), r = 0.1 + 0.2 * h * (1.0 + 0.5 * uBeat * h); vec2 c = (vec2(h21(id + 1.7), h21(id + 4.1)) - 0.5) * 0.45; float d = length(f - c);
+          float core = smoothstep(r, r * 0.2, d), halo = exp(-d * 7.0) * 0.5;
+          col += grad(h * 0.6 + fl * 0.25 + t * 0.01) * (core * 1.3 + halo) * step(0.35, h) * (0.35 + 0.35 * fl) * (0.6 + 0.7 * sin(t * 2.0 + h * 40.0) * 0.5 + 0.5 * uMd);
+        }
+        return col;
+      }
+`,
+`      // 80 MONOLITHS: three suns over a field of black slabs, glyphs burning on them in time with the music
+      vec3 sMonolith(vec2 pp, float rad, float ang) {
+        float t = uTime; vec3 col = mix(vec3(0.9, 0.2, 0.5), vec3(0.05, 0.02, 0.25), smoothstep(-0.05, 0.7, pp.y));
+        for (int i = 0; i < 3; i++) { float fi = float(i); vec2 sc = vec2(-0.45 + fi * 0.42, 0.22 + 0.1 * sin(fi * 2.0 + t * 0.05)); float d = length(pp - sc); col += mix(vec3(1.0, 0.9, 0.5), vec3(0.6, 0.9, 1.0), fi * 0.5) * (smoothstep(0.09, 0.07, d) * 1.2 + exp(-d * 5.0) * 0.45 * (1.0 + 0.5 * uBeat)); }
+        float cx = pp.x * 4.0, cell = floor(cx + 0.5), fx = cx - cell, h = h21(vec2(cell, 3.0)), hh = 0.15 + 0.55 * h;
+        float slab = step(abs(fx), 0.1 + 0.05 * h) * step(0.0, pp.y) * step(pp.y, hh) * step(0.3, h);
+        float edge = slab * (smoothstep(0.012, 0.0, abs(abs(fx) - (0.1 + 0.05 * h))) + smoothstep(0.02, 0.0, abs(pp.y - hh)));
+        float gl = slab * step(0.5, fract(pp.y * 14.0 + h * 9.0)) * step(0.4, h21(vec2(floor(pp.y * 14.0 + h * 9.0), cell))) * (0.3 + 1.2 * uMd + 0.5 * uBeat);
+        col = mix(col, vec3(0.01, 0.0, 0.03), slab) + grad(h + t * 0.02) * (edge * 1.4 + gl);
+        return col;
+      }
+`,
+`      // 81 GRAVITY WELL: a glowing grid is dragged into a black hole at the end of the road; its ring of fire spirals with the bass
+      vec3 sWell(vec2 pp, float rad, float ang) {
+        float t = uTime; vec2 q = pp * (1.0 + 0.5 / (rad + 0.25)); q += vec2(sin(t * 0.2), cos(t * 0.17)) * 0.1;
+        for (int i = 0; i < 2; i++) { vec2 w = vec2(sin(t * 0.3 + float(i) * 2.4) * 0.6, cos(t * 0.23 + float(i) * 1.7) * 0.35 + 0.2); float d = length(pp - w); q += normalize(w - pp + 0.001) * 0.12 * exp(-d * 3.0) * (1.0 + uLow); }
+        vec2 g = abs(fract(q * 5.0) - 0.5); float ln = smoothstep(0.05, 0.0, min(g.x, g.y));
+        vec3 col = vec3(0.01, 0.0, 0.05) + grad(rad * 0.6 + t * 0.02) * ln * (0.45 + 0.8 * uBeat) * smoothstep(0.1, 0.35, rad);
+        float rr = rad - 0.17, ring = exp(-pow(rr * 14.0, 2.0)) * (0.55 + 0.45 * sin(ang * 3.0 + t * 3.0 - rad * 10.0 + uLow * 4.0));
+        col += mix(vec3(1.0, 0.5, 0.15), vec3(1.0, 0.9, 0.8), ring) * ring * (1.2 + uBeat) + vec3(0.6, 0.3, 1.0) * exp(-max(rr, 0.0) * 5.0) * 0.4;
+        col *= smoothstep(0.1, 0.17, rad) * 0.9 + 0.1;
+        return col;
+      }
+`,
+`      // 82 FIRST CONTACT: the sky is an alien oscilloscope; every row of waveform is a band of the music, and rings of signal pulse out from the road
+      vec3 sContact(vec2 pp, float rad, float ang) {
+        float t = uTime; vec3 col = vec3(0.0, 0.02, 0.05) + vec3(0.0, 0.08, 0.06) * step(0.5, fract(pp.y * 12.0)) * 0.25;
+        for (int i = 0; i < 6; i++) {
+          float fi = float(i), y0 = -0.1 + fi * 0.13, amp = (0.025 + 0.12 * (i < 2 ? uLow : i < 4 ? uMd : uHigh)) * (0.6 + 0.6 * uBeat);
+          float w = sin(pp.x * (5.0 + fi * 3.0) + t * (1.0 + fi * 0.35) + fi) * amp + sin(pp.x * (13.0 + fi * 5.0) - t * 2.0) * amp * 0.4;
+          float env = exp(-pp.x * pp.x * 0.7); col += grad(fi * 0.17 + t * 0.01) * (smoothstep(0.014, 0.0, abs(pp.y - y0 - w * env)) * 1.4 + smoothstep(0.1, 0.0, abs(pp.y - y0 - w * env)) * 0.12);
+        }
+        for (int k = 0; k < 3; k++) { float r = fract(t * 0.22 + float(k) / 3.0) * 1.3; col += grad(0.5 + float(k) * 0.2) * smoothstep(0.012, 0.0, abs(rad - r)) * (1.0 - r / 1.3) * 1.3; }
+        vec2 gp = floor(pp * vec2(16.0, 9.0) + vec2(0.0, t * 0.3)); col += vec3(0.3, 1.0, 0.7) * step(0.93, h21(gp)) * step(0.4, fract(pp.x * 16.0)) * step(0.5, fract(pp.y * 9.0 + t * 0.3)) * 0.5;
+        return col;
+      }
+`,
+`      // 83 XENO GARDEN: petals of an impossible flower fold round the road, curling and breathing, spores shaken loose on every beat
+      vec3 sGarden(vec2 pp, float rad, float ang) {
+        float t = uTime; vec3 col = vec3(0.02, 0.0, 0.06) + grad(rad * 0.5 + t * 0.02) * 0.1;
+        for (int i = 0; i < 4; i++) {
+          float fi = float(i), k = 4.0 + fi * 2.0, dir = mod(fi, 2.0) < 0.5 ? 1.0 : -1.0;
+          float rr = (0.16 + 0.17 * fi) * (0.55 + 0.45 * abs(cos(k * 0.5 * ang + t * 0.25 * dir + uLow * 1.2 + rad * 3.0))) * (1.0 + 0.1 * uBeat);
+          float edge = smoothstep(0.025, 0.0, abs(rad - rr)), fill = smoothstep(rr, rr * 0.3, rad) * step(rad, rr);
+          col += grad(fi * 0.22 + rad + t * 0.02) * (edge * 1.5 + fill * 0.28);
+        }
+        float tw = sin(ang * 9.0 + rad * 18.0 - t * 1.5) * 0.5 + 0.5; col += grad(0.9 + rad) * pow(tw, 6.0) * exp(-rad * 2.5) * 0.5;
+        vec2 sp = pp * 18.0 + vec2(0.0, -t * 0.5), id = floor(sp), f = fract(sp) - 0.5; col += vec3(1.0, 0.9, 0.7) * step(0.96, h21(id)) * smoothstep(0.2, 0.0, length(f)) * (0.5 + uHigh);
+        col += vec3(1.0, 0.7, 0.9) * exp(-rad * 9.0) * (0.6 + uBeat);
+        return col;
+      }
+`,
+`      // 84 ALIEN DAWN: a dawn over a foreign world: a crescent planet, green aurora curtains, lanterns drifting up
+      vec3 sAlienDawn(vec2 pp, float rad, float ang) {
+        float t = uTime; vec3 col = mix(vec3(0.0, 0.25, 0.22), vec3(0.12, 0.0, 0.28), smoothstep(-0.1, 0.7, pp.y));
+        vec2 pc = vec2(0.2, 0.34), p = pp - pc; float a = length(p), b = length(p - vec2(-0.09, -0.05)), disc = smoothstep(0.34, 0.33, a), cres = disc * smoothstep(0.3, 0.31, b);
+        col += vec3(1.0, 0.65, 0.9) * cres * (0.8 + 0.3 * sin(p.y * 30.0 + t * 0.2)) + vec3(0.3, 1.0, 0.8) * exp(-max(a - 0.33, 0.0) * 12.0) * 0.6 * (1.0 + 0.5 * uBeat);
+        for (int i = 0; i < 3; i++) {
+          float fi = float(i), w = pp.y - 0.15 - fi * 0.14 - sin(pp.x * (2.5 + fi) + t * (0.25 + fi * 0.1) + uLow * 1.5) * 0.12;
+          col += grad(fi * 0.25 + 0.3 + pp.x * 0.1) * smoothstep(0.0, 0.12, w + 0.05) * exp(-abs(w) * 5.0) * 0.35 * (0.6 + 0.5 * pow(0.5 + 0.5 * sin(pp.x * 30.0 + t), 3.0));
+        }
+        vec2 uv = pp * 7.0 + vec2(sin(t * 0.3), -t * 0.35), id = floor(uv), f = fract(uv) - 0.5; float h = h21(id); col += vec3(1.0, 0.8, 0.4) * step(0.82, h) * smoothstep(0.16, 0.0, length(f - (vec2(h21(id + 2.0), h21(id + 5.0)) - 0.5) * 0.4)) * (0.6 + 0.8 * uMd);
+        return col;
+      }
 `
 
     ];
-    const CALL = ['sSunset(d)', 'sAurora(d)', 'sMandala(pp, rad, ang)', 'sVortex(pp, rad, ang)', 'sWarp(pp, rad, ang)', 'sPlasma(d)', 'sEye(pp, rad, ang)', 'sCrystal(pp)', 'sFractal(pp)', 'sSpiral(pp, rad, ang)', 'sSacred(pp, rad, ang)', 'sNebula(d)', 'sInferno(d)', 'sMaw(pp, rad, ang)', 'sStatic(d)', 'sSigil(pp, rad, ang)', 'sCrypt(pp, rad, ang)', 'sWatch(pp, rad, ang)', 'sStorm(d)', 'sFace(pp, rad, ang)', 'sBloom(pp, rad, ang)', 'sFire(pp, rad, ang)', 'sBubbles(pp, rad, ang)', 'sRainbow(pp, rad, ang)', 'sLiminal(pp, rad, ang)', 'sSmiles(pp, rad, ang)', 'sFair(pp, rad, ang)', 'sMoon(pp, rad, ang)', 'sCandy(pp, rad, ang)', 'sRays(pp, rad, ang)', 'sCity(pp, rad, ang)', 'sConfetti(pp, rad, ang)', 'sKaleido(pp, rad, ang)', 'sJelly(pp, rad, ang)', 'sAbyss(pp, rad, ang)', 'sCathedral(pp, rad, ang)', 'sTendril(pp, rad, ang)', 'sEyes(pp, rad, ang)', 'sTall(pp, rad, ang)', 'sVeins(pp, rad, ang)', 'sElves(pp, rad, ang)', 'sDome(d)', 'sChrys(pp, rad, ang)', 'sHyper(pp, rad, ang)', 'sIndra(pp, rad, ang)', 'sSerp(d)', 'sShipibo(pp, rad, ang)', 'sSurgeons(pp, rad, ang)', 'sMelt(pp, rad, ang)', 'sBreath(pp, rad, ang)', 'sLight(pp, rad, ang)', 'sAlham(pp, rad, ang)', 'sDNA(pp, rad, ang)', 'sTime(pp, rad, ang)', 'sAstral(d)', 'sShroom(pp, rad, ang)', 'sGlyph(pp, rad, ang)', 'sArms(pp, rad, ang)', 'sJulia(pp, rad, ang)', 'sTorus(pp, rad, ang)', 'sLattice(pp, rad, ang)', 'sRibbons(pp, rad, ang)', 'sLotus(pp, rad, ang)', 'sVeil(d)', 'sRipples(pp, rad, ang)', 'sGalaxy(pp, rad, ang)', 'sCircuit(pp, rad, ang)', 'sSnow(pp, rad, ang)', 'sDroste(pp, rad, ang)', 'sFold(pp, rad, ang)', 'sNeuron(pp, rad, ang)', 'sTide(d)', 'sEmber(pp, rad, ang)', 'sMyth(d)', 'sPantheon(pp, rad, ang)', 'sNether(pp, rad, ang)', 'sDunes(d)'];
+    const CALL = ['sSunset(d)', 'sAurora(d)', 'sMandala(pp, rad, ang)', 'sVortex(pp, rad, ang)', 'sWarp(pp, rad, ang)', 'sPlasma(d)', 'sEye(pp, rad, ang)', 'sCrystal(pp)', 'sFractal(pp)', 'sSpiral(pp, rad, ang)', 'sSacred(pp, rad, ang)', 'sNebula(d)', 'sInferno(d)', 'sMaw(pp, rad, ang)', 'sStatic(d)', 'sSigil(pp, rad, ang)', 'sCrypt(pp, rad, ang)', 'sWatch(pp, rad, ang)', 'sStorm(d)', 'sFace(pp, rad, ang)', 'sBloom(pp, rad, ang)', 'sFire(pp, rad, ang)', 'sBubbles(pp, rad, ang)', 'sRainbow(pp, rad, ang)', 'sLiminal(pp, rad, ang)', 'sSmiles(pp, rad, ang)', 'sFair(pp, rad, ang)', 'sMoon(pp, rad, ang)', 'sHive(pp, rad, ang)', 'sRays(pp, rad, ang)', 'sCity(pp, rad, ang)', 'sConfetti(pp, rad, ang)', 'sKaleido(pp, rad, ang)', 'sJelly(pp, rad, ang)', 'sAbyss(pp, rad, ang)', 'sCathedral(pp, rad, ang)', 'sTendril(pp, rad, ang)', 'sEyes(pp, rad, ang)', 'sTall(pp, rad, ang)', 'sVeins(pp, rad, ang)', 'sElves(pp, rad, ang)', 'sDome(d)', 'sChrys(pp, rad, ang)', 'sHyper(pp, rad, ang)', 'sIndra(pp, rad, ang)', 'sSerp(d)', 'sShipibo(pp, rad, ang)', 'sSurgeons(pp, rad, ang)', 'sMelt(pp, rad, ang)', 'sBreath(pp, rad, ang)', 'sLight(pp, rad, ang)', 'sAlham(pp, rad, ang)', 'sDNA(pp, rad, ang)', 'sTime(pp, rad, ang)', 'sAstral(d)', 'sShroom(pp, rad, ang)', 'sGlyph(pp, rad, ang)', 'sArms(pp, rad, ang)', 'sJulia(pp, rad, ang)', 'sTorus(pp, rad, ang)', 'sLattice(pp, rad, ang)', 'sRibbons(pp, rad, ang)', 'sLotus(pp, rad, ang)', 'sVeil(d)', 'sRipples(pp, rad, ang)', 'sGalaxy(pp, rad, ang)', 'sCircuit(pp, rad, ang)', 'sSnow(pp, rad, ang)', 'sDroste(pp, rad, ang)', 'sFold(pp, rad, ang)', 'sNeuron(pp, rad, ang)', 'sTide(d)', 'sEmber(pp, rad, ang)', 'sMyth(d)', 'sPantheon(pp, rad, ang)', 'sNether(pp, rad, ang)', 'sDunes(d)', 'sTractor(pp, rad, ang)', 'sRinged(pp, rad, ang)', 'sSpores(pp, rad, ang)', 'sMonolith(pp, rad, ang)', 'sWell(pp, rad, ang)', 'sContact(pp, rad, ang)', 'sGarden(pp, rad, ang)', 'sAlienDawn(pp, rad, ang)'];
     const MAIN = `
       void main() {
         vec3 d = normalize(vDir);
@@ -3316,7 +3484,7 @@ const R = {
   },
   driveFrame(g, dt, now) {
     for (const q of this.rings) { if (!q.m.visible) continue; q.age += dt; const u = q.age / q.life; if (u >= 1) { q.m.visible = false; continue; } const e = 1 - Math.pow(1 - u, 3); q.m.scale.setScalar((0.15 + 1.5 * e) * q.s); q.m.quaternion.copy(this.camera.quaternion); q.m.material.opacity = 0.9 * (1 - u) * (1 - u); }                                       // pistols follow the hands (VR) or sit at the bottom of the screen (flat); bolts fly
-    const show = g.drive && g.state !== 'menu', D = this._dv; for (const p of this.pistols) p.visible = show; if (show && UI.xr) this.pistols[Settings.hand === 'left' ? 1 : 0].visible = false;
+    const show = g.drive && g.state !== 'menu', D = this._dv; for (const p of this.pistols) p.visible = show; if (show && UI.xr) this.pistols[Settings.hand === 'left' ? 0 : 1].visible = false;
     if (show) {
       const xr = !!UI.xr;
       for (let i = 0; i < 2; i++) {
@@ -3458,7 +3626,12 @@ const R = {
     { const rs = Settings.cMotion || Settings.cSteady ? 0 : g.rush; this.rushT = ((this.rushT || 0) + dt * speed * (0.55 * rs + 0.25 * (g.build || 0))) % 100000; }
     const travel = songT * speed + (this.rushT || 0);                                  // scenery runs faster than the notes in a rush: pure sensation of speed
     const bpm = A ? A.bpm : 124, phase = A ? A.phase : 0, period = 60 / bpm;
-    const bf = (((songT - phase) / period) % 1 + 1) % 1, pulse = Math.exp(-bf * 5.5);
+    if (A && A.beats === undefined) A.beats = (A.nF && A.onsets) ? buildBeats(A) : null;                 // adaptive beat map (built once per track)
+    let bf = (((songT - phase) / period) % 1 + 1) % 1, lph = phase, lpd = period;
+    { const B = A && A.beats; if (B && B.length > 4 && songT >= B[0] && songT < B[B.length - 1]) {
+        let i = this._bi | 0; if (i < 0 || i >= B.length - 1 || B[i] > songT || B[i + 1] <= songT) { let lo = 0, hi = B.length - 2; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (B[m] <= songT) lo = m; else hi = m - 1; } i = lo; }
+        this._bi = i; lph = B[i]; lpd = clamp(B[i + 1] - B[i], 0.25, 1.2); bf = clamp((songT - lph) / lpd, 0, 1); } }
+    const pulse = Math.exp(-bf * 5.5);
     this.pulse = pulse;
     // ---- live hit envelopes from the pre-scan: real kicks and snares drive the visuals, the beat grid is only the fallback ----
     let kickE = 0, snapE = 0;
@@ -3473,7 +3646,7 @@ const R = {
     if (snapE > 0.85 && this.snap <= 0.85 && g.state === 'playing') this.burst((Math.random() - 0.5) * 4, 5, [this.curTheme.a2.x, this.curTheme.a2.y, this.curTheme.a2.z], 1.3, 1.6);
     this.kick = kickE; this.snap = snapE;
     const T = QUALITY_TIERS[this.quality], E = this.energyLane, inXR = !!UI.xr;
-    const now = U.uTime.value = performance.now() * 0.001; U.uBeat.value = (Settings.cFlash ? 0.4 : 1) * Math.min(1.3, 0.34 * pulse * (0.45 + 0.55 * g.intensity) + 0.8 * kickE + 0.4 * snapE); U.uPeriod.value = period; U.uPhase.value = phase; U.uInt.value = g.intensity + 0.45 * g.bt; U.uRush.value = (Settings.cFlash ? 0.5 : 1) * Math.min(1.2, (g.rush || 0) * 0.9 + (g.build || 0) * 0.3);
+    const now = U.uTime.value = performance.now() * 0.001; U.uBeat.value = g.state === 'menu' ? 0.1 + 0.05 * Math.sin(now * 0.5) : (Settings.cFlash ? 0.4 : 1) * Math.min(1.3, (0.34 * pulse * (0.45 + 0.55 * g.intensity) + 0.8 * kickE + 0.4 * snapE) * (1 - 0.6 * clamp(((g.build || 0) - 0.7) / 0.3, 0, 1)) + 0.5 * (this.dropE || 0)); U.uPeriod.value = lpd; U.uPhase.value = lph; U.uInt.value = g.intensity + 0.45 * g.bt; U.uRush.value = (Settings.cFlash ? 0.5 : 1) * Math.min(1.2, (g.rush || 0) * 0.9 + (g.build || 0) * 0.3);
     U.uTick.value = g.chart ? g.chart.tickDt : 0.12;
     this.od += ((g.odActive ? 1 : 0) - this.od) * Math.min(1, dt * 4); U.uOD.value = this.od;
     if (!!g.saber !== this._sbA) { this._sbA = !!g.saber; this._fpA = undefined; }
@@ -3492,7 +3665,7 @@ const R = {
       this.sv = sv0 + (sT - sv0) * Math.min(1, dt * (sT > sv0 ? 1.5 : 3)); this.hl = hl0 + ((hOn ? 1 : 0) - hl0) * Math.min(1, dt * (hOn ? 6 : 0.7));
       if (hOn && !this.hellOn) this.hellPick = HELL_SC[(Math.random() * HELL_SC.length) | 0]; this.hellOn = hOn; this.hAcc = (this.hAcc || 0) + dt * (0.016 + 0.045 * this.sv); }
     const want = this.hellOn ? this.hellPick : g.sceneIdx | 0;
-    if (want !== sc.cur) { sc.prev = sc.cur; sc.cur = want; sc.mix = T.dual ? 0 : 1; sc.swapped = false; const Ln = LOOK[want] || LOOK[0]; U.uRoad.value.z = U.uRoad.value.x; U.uRoad.value.x = Ln[2]; U.uRoad.value.w = T.dual ? 0 : 1; sc.tint = Ln[3]; sc.rmix = Ln[4]; if (g.state === 'playing' && T.dual) Input.hapticAll(0.22, 160); }
+    if (want !== sc.cur) { sc.prev = sc.cur; sc.cur = want; sc.mix = (T.dual && g.state !== 'menu') ? 0 : 1; sc.swapped = false; const Ln = LOOK[want] || LOOK[0]; U.uRoad.value.z = U.uRoad.value.x; U.uRoad.value.x = Ln[2]; U.uRoad.value.w = T.dual ? 0 : 1; sc.tint = Ln[3]; sc.rmix = Ln[4]; if (g.state === 'playing' && T.dual) Input.hapticAll(0.22, 160); }
     if (sc.mix < 1) sc.mix = Math.min(1, sc.mix + dt / 2.4);
     const S = SCENES[sc.cur];
     if (!sc.swapped && (sc.mix >= 0.5 || !T.dual)) { sc.swapped = true; sc.gm = S.gm; sc.gs = S.gs; const Lk = LOOK[sc.cur] || LOOK[0]; sc.tfam = Lk[0]; sc.tcol = Lk[1];  }
@@ -3516,18 +3689,20 @@ const R = {
     this.side = (this.side - speed * Math.sin(g.heading) * dt) % 3600; U.uSide.value = this.side;
 
     // ---- palette: every section of every song gets its own colour world, drifting slowly round the colour wheel ----
-    const pk = g.track ? g.track.key : 'menu', hs = this.hAcc + 0.05 * Math.sin(now * 0.37), pal0 = S.horror ? horrorPalette(pk, g.track ? g.secIdx : sc.cur, S.unc) : paletteFor(pk, g.track ? g.secIdx : sc.cur, hs), k = Math.min(1, dt * (1.1 + 4 * this.hl)), c = this.curTheme;
+    const pk = g.track ? g.track.key : 'menu', hs = this.hAcc + 0.05 * Math.sin(now * 0.37), pal0 = S.horror ? horrorPalette(pk, g.track ? g.secIdx : sc.cur, S.unc) : paletteFor(pk, g.track ? g.secIdx : sc.cur, hs), k = Math.min(1, dt * (1.1 + 4 * this.hl + ((g.build || 0) > 0.05 || (this.dropE || 0) > 0.05 ? 7 : 0))), c = this.curTheme;
     let pal = pal0;
-    const spw = this.od * 0.55;
-    if (this.hl > 0.01 || this.sv > 0.5 || spw > 0.01) {                                                // streak glory pulls the world toward gold and white; a broken streak drowns it in blood
+    const spw = this.od * 0.55, fkk0 = Settings.cFlash ? 0.6 : 1;
+    this.dropE = Math.max(0, (this.dropE || 0) - dt * 0.85);
+    const fkk = Settings.cFlash ? 0.35 : 1, tw = g.state === 'playing' ? clamp((g.build || 0), 0, 1) : 0, dfe = (this.dropE || 0) * fkk;      // before a drop the world dims and closes in, then the drop blows it open
+    if (this.hl > 0.01 || this.sv > 0.5 || spw > 0.01 || tw > 0.02 || dfe > 0.02) {                                                // streak glory pulls the world toward gold and white; a broken streak drowns it in blood
       pal = {}; const gw = clamp((this.sv - 0.4) / 0.6, 0, 1) * 0.5, hw = this.hl;
-      for (const q of ['hz', 'zn', 'a1', 'a2', 'gr']) { const p0 = pal0[q], G = GLORY_PAL[q], H = HELL_PAL[q]; pal[q] = [0, 1, 2].map((i) => { let v = p0[i] + (G[i] - p0[i]) * gw; v += (STAR_PAL[q][i] - v) * spw; return v + (H[i] - v) * hw; }); }
+      for (const q of ['hz', 'zn', 'a1', 'a2', 'gr']) { const p0 = pal0[q], G = GLORY_PAL[q], H = HELL_PAL[q]; pal[q] = [0, 1, 2].map((i) => { let v = p0[i] + (G[i] - p0[i]) * gw; v += (STAR_PAL[q][i] - v) * spw; v = v + (H[i] - v) * hw; if (tw > 0.02) v *= 1 - tw * (q === 'a1' || q === 'a2' ? 0.4 : 0.7) * fkk0; if (dfe > 0.02) v += (1.15 - v) * dfe * (q === 'zn' || q === 'gr' ? 0.3 : 0.55); return v; }); }
     }
     const mixv = (v, a) => { v.x += (a[0] - v.x) * k; v.y += (a[1] - v.y) * k; v.z += (a[2] - v.z) * k; };
     mixv(c.hz, pal.hz); mixv(c.zn, pal.zn); mixv(c.a1, pal.a1); mixv(c.a2, pal.a2); mixv(c.gr, pal.gr);
     U.uFogColor.value.set(c.hz.x * 0.42 + c.zn.x * 0.3, c.hz.y * 0.42 + c.zn.y * 0.3, c.hz.z * 0.42 + c.zn.z * 0.3);
     if (this.hl > 0.01) { const f = U.uFogColor.value, h = this.hl * 0.6; f.set(f.x + (0.22 - f.x) * h, f.y * (1 - h), f.z * (1 - h)); }
-    U.uFogNear.value = 40 * (1 - 0.45 * this.hl); U.uFogFar.value = 150 * (1 - 0.3 * this.hl);
+    U.uFogNear.value = 40 * (1 - 0.45 * this.hl - 0.5 * tw * fkk0) * (1 + 0.5 * dfe); U.uFogFar.value = 150 * (1 - 0.3 * this.hl - 0.3 * tw * fkk0) * (1 + 0.35 * dfe);
     { const hd = this._hd === undefined ? (this._hd = document.getElementById('hell')) : this._hd; if (hd) { const o = Math.round((Settings.cCalm ? 0 : this.hl) * 100) / 100; if (o !== this._ho) { this._ho = o; hd.style.opacity = o; } } }
     U.uRush.value = Math.max(U.uRush.value, this.od * 0.45, (this.whE || 0) * 0.9, this.sv * 0.5 * (Settings.cFlash ? 0.5 : 1));
     if (g.state === 'playing') {
@@ -3770,7 +3945,7 @@ const R = {
       else if (ev.k === 'holdend') this.burst(ev.x, 24, [1, 0.85, 0.3], 1.6, 2.4);
       else if (ev.k === 'bad') this.burst(ev.x, 22, [1, 0.12, 0.12], 2.2, 2.4);
       else if (ev.k === 'smash') this.burst(ev.x, 18, [1, 0.5, 0.2], 2.0, 2.2);
-      else if (ev.k === 'drop') { const cc = [c.a1.x * 0.6 + 0.5, c.a1.y * 0.6 + 0.5, c.a1.z * 0.6 + 0.5]; this.burst(0, 90, cc, 6.0, 4.0); this.burst(-2, 30, [c.a2.x, c.a2.y, c.a2.z], 4.0, 3.0); this.burst(2, 30, [c.a2.x, c.a2.y, c.a2.z], 4.0, 3.0); this.ring(0, 0.5, SHIP_Z - 4, cc); }
+      else if (ev.k === 'drop') { const cc = [c.a1.x * 0.6 + 0.5, c.a1.y * 0.6 + 0.5, c.a1.z * 0.6 + 0.5]; this.dropE = 1; this.ring(0, 0.5, SHIP_Z - 6, [1.4, 1.4, 1.4], 4, 0.9); this.ring(0, 0.5, SHIP_Z - 4, cc, 8, 1.4); this.burst(0, 90, cc, 6.0, 4.0); this.burst(-2, 30, [c.a2.x, c.a2.y, c.a2.z], 4.0, 3.0); this.burst(2, 30, [c.a2.x, c.a2.y, c.a2.z], 4.0, 3.0); this.ring(0, 0.5, SHIP_Z - 4, cc); }
       else if (ev.k === 'power') this.burst(g.lat, 40, [0.4, 0.9, 1.0], 3.2, 3.0);
       else if (ev.k === 'scene') { if (SCENES[ev.i] && SCENES[ev.i].horror && !SCENES[ev.i].unc && g.state === 'playing' && !Settings.cCalm) AudioEng.boom(); this.burst(0, 50, [c.a1.x, c.a1.y, c.a1.z], 4.0, 3.0); }
     }
@@ -3790,7 +3965,7 @@ const R = {
     // ---- ship (banks into the turns), halo, trail ----
     const bob = 0.04 * Math.sin(now * 3), roll = clamp(-g.latVel * 0.07 - g.kappa * 60, -0.7, 0.7);
     this.ship.scale.setScalar(1.6); this.altV = g.alt || 0; this.ship.position.set(sxw, 0.32 + bob + this.altV * HI_Y, SHIP_Z); this.ship.rotation.z = roll; this.ship.rotation.x = 0.0;
-    const hs2 = 1 + 0.25 * pulse + 0.5 * this.od; this.halo.position.set(sxw, 0.03, SHIP_Z); this.halo.scale.set(hs2 * (1 + 0.5 * this.altV), hs2 * (1 + 0.5 * this.altV), hs2);       // the ring on the road is your shadow when you fly
+    const hs2 = 1 + 0.25 * pulse + 0.5 * this.od + 0.35 * this.kick + 0.15 * this.low; { const k = clamp(this.high / (this.low + this.high + 0.15), 0, 1), c1 = this.curTheme ? this.curTheme.a1 : { x: 0.2, y: 0.87, z: 1 }, c2 = this.curTheme ? this.curTheme.a2 : { x: 1, y: 0.4, z: 0.9 }; this.halo.material.color.setRGB(0.2 + (c1.x * (1 - k) + c2.x * k) * 0.8, 0.5 + (c1.y * (1 - k) + c2.y * k) * 0.5, 0.7 + (c1.z * (1 - k) + c2.z * k) * 0.3); } this.halo.position.set(sxw, 0.03, SHIP_Z); this.halo.scale.set(hs2 * (1 + 0.5 * this.altV), hs2 * (1 + 0.5 * this.altV), hs2);       // the ring on the road is your shadow when you fly
     this.halo.material.color.setRGB(c.a1.x * (1 - this.od) + 1.0 * this.od, c.a1.y * (1 - this.od) + 0.85 * this.od, c.a1.z * (1 - this.od) + 0.3 * this.od);
     const tl2 = this.trailLat; for (let i = this.TN - 1; i > 0; i--) tl2[i] = tl2[i - 1]; tl2[0] = g.lat;
     const tp = this.trailMesh.geometry.attributes.position.array, tc = this.trailMesh.geometry.attributes.color.array;
@@ -4694,8 +4869,9 @@ const Input = {
   push(a, o) { const e = o || {}; e.a = a; this.ev.push(e); },
   consume() { if (!this.ev.length) return this.ev; const e = this.ev; this.ev = []; return e; },
   prefSide() { return Settings.hand === 'left' ? 'left' : 'right'; },
+  gunSide() { return this.otherSide(this.prefSide()); },       // drive-by: your dominant hand steers, the other one holds the gun
   otherSide(s) { return s === 'left' ? 'right' : 'left'; },
-  steerHand() { if (!Game.drive) return this.aimHand(); const o = this.otherSide(this.prefSide()); return this.hands[o] || this.hands[this.prefSide()]; },      // drive-by: one hand holds the gun, the other steers
+  steerHand() { if (!Game.drive) return this.aimHand(); const o = this.prefSide(); return this.hands[o] || this.hands[this.otherSide(o)]; },      // drive-by: the dominant hand steers, the other holds the gun
   aimHand() { return this.hands[this.prefSide()] || this.hands[this.otherSide(this.prefSide())]; },
 
   // ---------- flat ----------
@@ -4823,8 +4999,8 @@ const Input = {
       const h = this.hands[side], pv = this.prev[side]; if (!h) { pv.length = 0; continue; }
       const edge = (i) => h.btn[i] && !pv[i];
       if (playing) {
-        const gripS = Settings.control === 'grip' && !(Game.drive && side === this.prefSide());                    // grip steers, so it never fires overdrive
-        if (Game.drive) { if ((!gripS && edge(1)) || edge(4)) this.push('overdrive'); if (edge(0)) { if (side === this.prefSide()) this.push('fire', { vr: side }); else this.push('overdrive'); } }   // drive-by: shoot with the aiming hand; the other hand steers, its trigger is overdrive
+        const gripS = Settings.control === 'grip' && !(Game.drive && side === this.gunSide());                    // grip steers, so it never fires overdrive
+        if (Game.drive) { if ((!gripS && edge(1)) || edge(4)) this.push('overdrive'); if (edge(0)) { if (side === this.gunSide()) this.push('fire', { vr: side }); else this.push('overdrive'); } }   // drive-by: shoot with the aiming hand; the other hand steers, its trigger is overdrive
         else if (Game.saber ? edge(4) : (edge(0) || (!gripS && edge(1)) || edge(4))) this.push('overdrive');
         if (edge(5)) this.push('pause');
       } else {
@@ -4863,7 +5039,7 @@ const Input = {
       const h = this.steerHand();
       if (h) { const dz = 0.08, a = Math.abs(h.ax) < dz ? 0 : Math.sign(h.ax) * (Math.abs(h.ax) - dz) / (1 - dz); raw = a * 2.15 * sens; }
     } else if (mode === 'grip') {                                         // squeeze a grip and drag sideways (1 lane per 16 cm); squeeze both and turn them like a wheel
-      const L = this.hands.left, Rr = this.hands.right, shoot = Game.drive ? this.prefSide() : '', gl = !!(L && L.btn[1]) && shoot !== 'left', gr = !!(Rr && Rr.btn[1]) && shoot !== 'right', key = (gl ? 1 : 0) + (gr ? 2 : 0), G = this.grab || (this.grab = { key: 0 });
+      const L = this.hands.left, Rr = this.hands.right, shoot = Game.drive ? this.gunSide() : '', gl = !!(L && L.btn[1]) && shoot !== 'left', gr = !!(Rr && Rr.btn[1]) && shoot !== 'right', key = (gl ? 1 : 0) + (gr ? 2 : 0), G = this.grab || (this.grab = { key: 0 });
       let x = 0, ang = 0;
       if (key === 3) { this.toLocal(L.o, _iv); const lx = _iv.x, ly = _iv.y; this.toLocal(Rr.o, _iv); x = (lx + _iv.x) * 0.5; ang = Math.atan2(_iv.y - ly, _iv.x - lx); }
       else if (key) this.toLocal((key === 1 ? L : Rr).o, _iv), x = _iv.x;
@@ -4874,12 +5050,16 @@ const Input = {
       this.toLocal(this.head, _iv); raw = (_iv.x - this.leanBase) / 0.13 * sens;
     }
     { let lf = 0, dn = 0;                                                          // flight: tilt a controller nose-up like a plane's yoke (relative to how you were holding it), or push either thumbstick up
-      const L0 = this.hands.left, R0 = this.hands.right, SH = Game.drive ? (this.hands[this.prefSide() === 'left' ? 'right' : 'left'] || null) : null, stickUp = SH ? (SH.ay < -0.6 ? 1 : 0) : ((L0 && L0.ay < -0.6) || (R0 && R0.ay < -0.6) ? 1 : 0), stickDn = SH ? (SH.ay > 0.6 ? 1 : 0) : ((L0 && L0.ay > 0.6) || (R0 && R0.ay > 0.6) ? 1 : 0);
+      const L0 = this.hands.left, R0 = this.hands.right, SH = null, stickUp = SH ? (SH.ay < -0.6 ? 1 : 0) : ((L0 && L0.ay < -0.6) || (R0 && R0.ay < -0.6) ? 1 : 0), stickDn = SH ? (SH.ay > 0.6 ? 1 : 0) : ((L0 && L0.ay > 0.6) || (R0 && R0.ay > 0.6) ? 1 : 0);
       if (mode === 'grip') { const G = this.grab; if (G && G.key) { const hs = G.key === 3 ? [L0, R0] : [G.key === 1 ? L0 : R0]; let p = 0; for (const h of hs) p += h.d.y; p /= hs.length; if (G.p0 === undefined || G.kp !== G.key) { G.p0 = p; G.kp = G.key; } lf = p - G.p0 > 0.24 ? 1 : 0; dn = p - G.p0 < -0.24 ? 1 : 0; } }
       else if (mode === 'point') { const h = this.steerHand(); if (h) { if (this.pt0 === undefined) this.pt0 = h.d.y; lf = h.d.y - this.pt0 > 0.3 ? 1 : 0; dn = h.d.y - this.pt0 < -0.3 ? 1 : 0; if (!lf && !dn) this.pt0 += (h.d.y - this.pt0) * Math.min(1, dt * 0.6); } }
       else if (mode === 'lean' && this.headOK) { this.toLocal(this.head, _iv); if (this.headY0 === undefined) this.headY0 = _iv.y; lf = _iv.y - this.headY0 > 0.1 ? 1 : 0; dn = _iv.y - this.headY0 < -0.1 ? 1 : 0; }
       lf = lf || stickUp; dn = (dn || stickDn) && !lf ? 1 : 0;
       this.lift = lf; this.liftV = lf ? 1 : dn ? -1 : 0; if (mode === 'grip' && this.grab && !this.grab.key) this.grab.p0 = undefined; }
+    if (this.xr && mode !== 'lean') {                                      // either thumbstick can steer at any time (handy mid-drive); let go and the main control takes back over
+      let sx = 0; for (const h of [this.hands.left, this.hands.right]) if (h && Math.abs(h.ax) > Math.abs(sx)) sx = h.ax;
+      const dz = 0.12; if (Math.abs(sx) > dz) { const a = Math.sign(sx) * (Math.abs(sx) - dz) / (1 - dz); this.stickOn = true; raw = a * 2.15 * sens; } else this.stickOn = false;
+    }
     if (raw === null) return;
     raw = clamp(raw, -2.2, 2.2);
     const speed = Math.abs(raw - this.rawPrev) / Math.max(dt, 0.001); this.rawPrev = raw;
@@ -5367,7 +5547,7 @@ const HUD = {
     T('MULTIPLIER', 40, 44, UI.font(19, 700), C.dim); T('x' + G.mult, 40, 128, UI.font(86, 900), mc); T('COMBO  ' + G.combo, 40, 172, UI.font(28, 700), C.tx);
     if (cd > 0) {
       T('GET READY', 384, 54, UI.font(22, 700), C.dim, 'center'); T(String(cd), 384, 134, UI.font(84, 900), C.cy, 'center');
-      const hint = UI.xr && G.drive ? (Settings.hand === 'left' ? 'Right thumbstick steers (push up to fly high)  -  left trigger fires  -  right trigger / grip = Star power' : 'Left thumbstick steers (push up to fly high)  -  right trigger fires  -  left trigger / grip = Star power') + '  -  B = Pause' : UI.xr ? (Settings.control === 'grip' ? 'Squeeze grip + drag sideways to steer, tilt the controller up (or push a stick up) to fly high  -  Trigger / A = Star power' : ({ point: 'Aim your controller to steer', stick: 'Thumbstick to steer', lean: 'Lean your head to steer' }[Settings.control]) + '  -  Grip / A = Star power') + '  -  B = Pause' : (TOUCH ? (Settings.touch === 'lanes' ? 'Tap a lane to jump, slide to steer (slide along streaks)  -  hold the top strip = fly high  -  OD button = Star power' : Settings.touch === 'tap' ? 'Tap left / right to step a lane, hold to glide  -  hold the top strip = fly high  -  OD button' : 'Drag to steer  -  drag up = fly high  -  OD button = Star power') : 'Mouse or arrow keys to steer  -  hold W / mouse at top = fly high  -  Space / click = Star power  -  Esc = Pause');
+      const hint = UI.xr && G.drive ? (Settings.hand === 'left' ? 'Left hand steers (either thumbstick works too, push up to fly high)  -  right trigger fires  -  left trigger / grip = Star power' : 'Right hand steers (either thumbstick works too, push up to fly high)  -  left trigger fires  -  right trigger / grip = Star power') + '  -  B = Pause' : UI.xr ? (Settings.control === 'grip' ? 'Squeeze grip + drag sideways to steer, tilt the controller up (or push a stick up) to fly high  -  Trigger / A = Star power' : ({ point: 'Aim your controller to steer', stick: 'Thumbstick to steer', lean: 'Lean your head to steer' }[Settings.control]) + '  -  Grip / A = Star power') + '  -  B = Pause' : (TOUCH ? (Settings.touch === 'lanes' ? 'Tap a lane to jump, slide to steer (slide along streaks)  -  hold the top strip = fly high  -  OD button = Star power' : Settings.touch === 'tap' ? 'Tap left / right to step a lane, hold to glide  -  hold the top strip = fly high  -  OD button' : 'Drag to steer  -  drag up = fly high  -  OD button = Star power') : 'Mouse or arrow keys to steer  -  hold W / mouse at top = fly high  -  Space / click = Star power  -  Esc = Pause');
       T(hint, 384, 172, UI.font(19, 600), C.tx, 'center'); if (!G.journey && Settings.corners !== 'off') T('Hard corners: swing to the inside lane before the turn', 384, 204, UI.font(17, 700), C.gd, 'center');
     }
     else { T('SCORE', 384, 44, UI.font(19, 700), C.dim, 'center'); T(G.score.toLocaleString(), 384, 112, UI.font(66, 900), C.tx, 'center'); }
