@@ -936,15 +936,20 @@ function buildCorners(cuts, turns, a, mode, speed) {
 }
 // sort notes, force them onto the inside lanes around corners, keep holds away from corners, add wall rows in the peak sections
 // barrel rolls and inversions in the biggest sections: the world flips round you (and steering mirrors with it, see Game.update)
-function buildRolls(infos, corners) {
+function buildRolls(infos, corners, dur) {
   const out = []; if (!infos || infos.length < 3) return out;
-  const order = infos.map((s, i) => i).sort((x, y) => infos[y].I - infos[x].I), flips = new Set(order.slice(0, 3));
+  const order = infos.map((s, i) => i).sort((x, y) => infos[y].I - infos[x].I), flips = new Set(order.slice(0, 2));
   const nearCorner = (t0, t1) => corners.some(c => c.t > t0 - 2 && c.t < t1 + 2);
+  const cand = [];
   infos.forEach((s, i) => {
-    const len = s.t1 - s.t0; if (len < 10 || s.I < 0.35) return;
-    if (flips.has(i) && len >= 16) { const ev = { t0: s.t0 + 2, a: 2.4, h: Math.min(6, len - 9), b: 2.4 }; ev.t1 = ev.t0 + ev.a + ev.h + ev.b; if (!nearCorner(ev.t0, ev.t1)) out.push(ev); }
-    else if (s.I > 0.42) { const ev = { t0: s.t0 + 1.5, a: 3.4, h: 0, b: 0, turn: 1 }; ev.t1 = ev.t0 + ev.a; if (!nearCorner(ev.t0, ev.t1)) out.push(ev); }
+    const len = s.t1 - s.t0; if (len < 10 || s.I < 0.4) return;
+    if (flips.has(i) && len >= 16) { const ev = { t0: s.t0 + 2, a: 2.4, h: Math.min(6, len - 9), b: 2.4, pr: 2 + s.I }; ev.t1 = ev.t0 + ev.a + ev.h + ev.b; if (!nearCorner(ev.t0, ev.t1)) cand.push(ev); }
+    else if (s.I > 0.55) { const ev = { t0: s.t0 + 1.5, a: 3.4, h: 0, b: 0, turn: 1, pr: s.I }; ev.t1 = ev.t0 + ev.a; if (!nearCorner(ev.t0, ev.t1)) cand.push(ev); }
   });
+  // rolls are a treat, not a habit: none in the opening 40 s, at most one every 45 s, and only a few per song
+  const total = dur || (infos.length ? infos[infos.length - 1].t1 : 0), cap = clamp(Math.floor(total / 75), 1, 3);
+  cand.sort((x, y) => y.pr - x.pr);
+  for (const ev of cand) { if (out.length >= cap) break; if (ev.t0 < 40) continue; if (out.some(o => Math.abs(o.t0 - ev.t0) < 45)) continue; out.push(ev); }
   return out.sort((x, y) => x.t0 - y.t0);
 }
 function rollAt(rolls, t) {
@@ -1062,7 +1067,7 @@ const Game = {
     const cm = Settings.corners === 'auto' ? (UI.xr ? 'soft' : 'full') : Settings.corners;
     this.corners = buildCorners(this.secs, this.secTurn, this.a, cm, this.speed);
     this.journey = Settings.mode === 'journey'; this.saber = Settings.mode === 'saber' || Settings.mode === 'punch'; this.weapon = Settings.mode === 'punch' ? 'fists' : 'sabers';
-    this.rolls = (this.journey || this.saber || Settings.cSteady || Settings.cMotion) ? [] : buildRolls(seg.infos, this.corners); this.roll = 0; this.rollWarn = null;
+    this.rolls = (this.journey || this.saber || Settings.cSteady || Settings.cMotion) ? [] : buildRolls(seg.infos, this.corners, this.a ? this.a.dur : 0); this.roll = 0; this.rollWarn = null;
     this.drive = Settings.mode === 'drive'; this.shotQ.length = 0; this.shotGems = this.shotObs = this.shots = 0;
     if (this.saber) this.corners = [];
     if (this.saber) {                                      // galactic horse: slice (or punch) the cubes as they arrive
@@ -1525,6 +1530,11 @@ const SCENES = [
   { name: 'ALIEN DAWN', sky: 84, gm: 0, sides: 40, gs: 1, spin: 0.05, pil: 1, mount: 0.7, tube: 0, mv: 5 }
 ];
 
+// ---- openness: how far away the walls, pillars and fog feel. Under 1 = a tight, claustrophobic passage; over 1 = a huge open world ----
+{ const OPEN = { 'CRYPT': 0.45, 'CATHEDRAL': 0.55, 'VEINS': 0.45, 'TENDRILS': 0.5, 'INSIDE THE WYRM': 0.4, 'THE EYES': 0.55, 'SIGIL': 0.55, 'THE MAW': 0.5, 'XENO HIVE': 0.45, 'THE SURGEONS': 0.5, 'THE FACE': 0.6, 'BREATHING WALLS': 0.5, 'LATTICE': 0.6, 'CIRCUIT': 0.55, 'STATIC': 0.6, 'CHRYSANTHEMUM': 0.6, 'THE DOME': 0.65, 'TORUS': 0.6, 'HYPERSPACE': 0.55, 'ALHAMBRA': 0.6, 'THE CODE': 0.6, 'ABYSS': 0.6, 'SERPENTS': 0.7, 'NEURONS': 0.65, 'GRAVITY WELL': 0.6, 'FIRST CONTACT': 0.8, 'NEON CITY': 0.7, 'LIMINAL': 0.6, 'WATCHERS': 0.65, 'THE TALL MAN': 1.3,
+    'SUNSET': 1.7, 'AURORA': 1.8, 'GOLDEN HOUR': 1.9, 'SNOWFALL': 1.8, 'GLASS TIDE': 2.0, 'ASTRAL SEA': 1.9, 'GALAXY': 1.8, 'RINGED WORLD': 1.8, 'ALIEN DAWN': 1.7, 'THE VEIL': 1.6, 'BLOOM': 1.5, 'RAINBOW': 1.6, 'NEBULA': 1.7, 'TITANS': 1.8, 'COLOSSI': 1.8, 'DRAGON SKY': 1.9, 'PHOENIX RISING': 1.8, 'SANDSTORM BALL': 1.6, 'SPHINX TEMPLE': 1.5, 'SPORE FIELDS': 1.3, 'XENO GARDEN': 1.2, 'MACHINE ELVES': 1.2, 'FAIRGROUND': 1.4, 'BLOOD MOON': 1.4, 'STORM': 1.5, 'FIREWORKS': 1.5, 'TRACTOR BEAM': 1.3, 'MONOLITHS': 1.4, 'SERAPH CHOIR': 1.4, 'ELDER GODS': 1.4, 'JUDGEMENT': 1.4 };
+  for (const S of SCENES) { if (OPEN[S.name] !== undefined) S.open = OPEN[S.name]; else { let h = 7; for (let i = 0; i < S.name.length; i++) h = (h * 31 + S.name.charCodeAt(i)) % 997; S.open = 0.85 + 0.4 * (h % 100) / 100; } } }
+
 // ---- the targets: one little 3D shape per kind of world. aS marks each part: 0 = dark, 1 = the target colour, 2 = white ----
 function mergeParts(parts) {
   const T = THREE, P = [], N = [], A = [];
@@ -1702,7 +1712,7 @@ const R = {
       uFogColor: { value: new THREE.Vector3() }, uFogNear: { value: 40 }, uFogFar: { value: 150 }, uTrip: { value: 1 }, uScale: { value: 400 },
       uLow: { value: 0 }, uMd: { value: 0 }, uHigh: { value: 0 }, uHead: { value: 0 }, uC: { value: new THREE.Vector2(0, 0.25) }, uSkyA: { value: 0 }, uSkyB: { value: 0 }, uMix: { value: 1 }, uGM: { value: 0 }, uSides: { value: 40 }, uSide: { value: 0 }, uTick: { value: 0.12 }, uCor: { value: new THREE.Vector4(0, 0, 0, 0) }, uSpike: { value: 0 }, uHor: { value: 0 }, uRoad: { value: new THREE.Vector4(0, 0, 0, 0) }, uRTint: { value: new THREE.Vector3(1, 1, 1) }, uTube: { value: new THREE.Vector4(0, 0, 1, 0) }, uTravel: { value: 0 }, uShipX: { value: 0 }, uQ: { value: new THREE.Vector4(0, 0, 0, 0) }
     };
-    this.sc = { cur: 0, prev: 0, mix: 1, swapped: true, gm: 0, gs: 1, sides: 40, spin: 0, spinPh: 0, pil: Object.assign({}, PIL_STYLES[0]), mount: 0.45, tfam: 0, tcol: 0 };
+    this.sc = { cur: 0, prev: 0, mix: 1, swapped: true, gm: 0, gs: 1, sides: 40, spin: 0, spinPh: 0, pil: Object.assign({}, PIL_STYLES[0]), mount: 0.45, open: 1, tfam: 0, tcol: 0 };
     { const L0 = LOOK[0]; this.sc.tfam = L0[0]; this.sc.tcol = L0[1]; this.U.uRoad.value.set(L0[2], L0[4], L0[2], 1); this.U.uRTint.value.set(L0[3][0], L0[3][1], L0[3][2]); }
     this.low = this.md = this.high = 0; this.side = 0; this.palKey = '';
     this.world = new THREE.Group(); scene.add(this.world);
@@ -3695,7 +3705,7 @@ const R = {
     // everything you shoot at pops out and back in around the swap, so the shapes never change under your eyes
     sc.tpop = 1;          // targets never pop out: each one keeps the shape and colour of its own section (see the notes loop)
     const k2 = Math.min(1, dt * 1.3), PS = PIL_STYLES[S.pil];
-    sc.sides += (S.sides - sc.sides) * k2; sc.spin += (S.spin - sc.spin) * k2; sc.mount += (S.mount - sc.mount) * Math.min(1, dt * 0.8);
+    sc.sides += (S.sides - sc.sides) * k2; sc.spin += (S.spin - sc.spin) * k2; sc.mount += (S.mount - sc.mount) * Math.min(1, dt * 0.8); sc.open += ((S.open || 1) - sc.open) * Math.min(1, dt * 0.7);
     const pl = sc.pil; pl.w += (PS.w - pl.w) * k2; pl.h += (PS.h - pl.h) * k2; pl.y += (PS.y - pl.y) * k2; pl.lat += (PS.lat - pl.lat) * k2;
     sc.spike = (sc.spike || 0) + ((S.pil === 5 ? 1 : 0) - (sc.spike || 0)) * k2; U.uSpike.value = sc.spike; U.uHor.value += ((S.horror ? 1 : 0) - U.uHor.value) * k2;
     sc.spinPh += dt * sc.spin * (0.6 + g.intensity * 1.6);
@@ -3723,7 +3733,7 @@ const R = {
     mixv(c.hz, pal.hz); mixv(c.zn, pal.zn); mixv(c.a1, pal.a1); mixv(c.a2, pal.a2); mixv(c.gr, pal.gr);
     U.uFogColor.value.set(c.hz.x * 0.42 + c.zn.x * 0.3, c.hz.y * 0.42 + c.zn.y * 0.3, c.hz.z * 0.42 + c.zn.z * 0.3);
     if (this.hl > 0.01) { const f = U.uFogColor.value, h = this.hl * 0.6; f.set(f.x + (0.22 - f.x) * h, f.y * (1 - h), f.z * (1 - h)); }
-    U.uFogNear.value = 40 * (1 - 0.45 * this.hl - 0.5 * tw * fkk0) * (1 + 0.5 * dfe); U.uFogFar.value = 150 * (1 - 0.3 * this.hl - 0.3 * tw * fkk0) * (1 + 0.35 * dfe);
+    U.uFogNear.value = 40 * clamp(0.5 + 0.5 * sc.open, 0.6, 1.35) * (1 - 0.45 * this.hl - 0.5 * tw * fkk0) * (1 + 0.5 * dfe); U.uFogFar.value = 150 * clamp(0.55 + 0.45 * sc.open, 0.62, 1.0) * (1 - 0.3 * this.hl - 0.3 * tw * fkk0) * (1 + 0.35 * dfe);
     { const hd = this._hd === undefined ? (this._hd = document.getElementById('hell')) : this._hd; if (hd) { const o = Math.round((Settings.cCalm ? 0 : this.hl) * 100) / 100; if (o !== this._ho) { this._ho = o; hd.style.opacity = o; } } }
     this.odPop = Math.max(0, (this.odPop || 0) - dt * 1.3); U.uRush.value = Math.max(U.uRush.value, this.od * 0.45, this.odPop * 1.1 * (Settings.cFlash ? 0.5 : 1), (this.whE || 0) * 0.9, this.sv * 0.5 * (Settings.cFlash ? 0.5 : 1));
     if (g.state === 'playing') {
@@ -3784,7 +3794,7 @@ const R = {
     { const k = this.mirrorK || 0, m = this.roadMirror; m.visible = k > 0.01; if (m.visible) m.position.y = 11 + 70 * Math.pow(1 - k, 2) + 0.6 * Math.sin(now * 0.7); }
 
     // ---- ground with canyon walls that dance to the music ----
-    const gp = this.groundGeo.attributes.position.array, gdA = this.groundGeo.attributes.aD.array, ghA = this.groundGeo.attributes.aH.array, M = (sc.mount * 15 + 2.5);
+    const gp = this.groundGeo.attributes.position.array, gdA = this.groundGeo.attributes.aD.array, ghA = this.groundGeo.attributes.aH.array, M = (sc.mount * 15 + 2.5) * clamp(1.5 - 0.5 * sc.open, 0.55, 1.3) + Math.max(0, 1 - sc.open) * 8, OP = sc.open, GMIN = this.gMin || (this.gMin = [50, 20, 9, 5.2, 0, 5.2, 9, 20, 50]);
     for (let i = 0; i < GROUND_N; i++) {
       const d = this.gD[i], oy = Yf(d) - 0.04, wd = travel + d;
       let hL = 0, hR = 0;
@@ -3793,7 +3803,7 @@ const R = {
         hL = M * (0.3 + 0.7 * (0.5 + 0.5 * Math.sin(wd * 0.043 + 1.7) * Math.sin(wd * 0.019 + 3.0))) * fct;
         hR = M * (0.3 + 0.7 * (0.5 + 0.5 * Math.sin(wd * 0.039 + 0.4) * Math.sin(wd * 0.023 + 1.1))) * fct;
       }
-      for (let j = 0; j < GROUND_C; j++) { const o = i * GROUND_C + j, p = o * 3, h = (j < 4 ? hL : j > 4 ? hR : 0) * this.gProf[j]; this.pl(d, this.gX[j]); gp[p] = this.qx; gp[p + 1] = oy + h; gp[p + 2] = this.qz; gdA[o] = travel + d; ghA[o] = h; }
+      for (let j = 0; j < GROUND_C; j++) { const o = i * GROUND_C + j, p = o * 3, h = (j < 4 ? hL : j > 4 ? hR : 0) * this.gProf[j]; this.pl(d, j === 4 ? 0 : Math.sign(this.gX[j]) * Math.max(GMIN[j], Math.abs(this.gX[j]) * OP)); gp[p] = this.qx; gp[p + 1] = oy + h; gp[p + 2] = this.qz; gdA[o] = travel + d; ghA[o] = h; }
     }
     this.groundGeo.attributes.position.needsUpdate = this.groundGeo.attributes.aD.needsUpdate = this.groundGeo.attributes.aH.needsUpdate = true;
 
@@ -3806,7 +3816,7 @@ const R = {
       for (let side = 0; side < 2; side++) {
         const b = (m * 3 + (side ? 7 : 0)) & 15, v = this.bandVal(A, tt, b, pulse);
         const h = (0.4 + 6.5 * Math.pow(Math.min(1.2, v), 1.4) * (0.6 + 0.6 * (b < 6 ? 1 : 0.7))) * pl.h;
-        const lat = (2.9 + ((m * 7 + side * 3) % 3) * 1.5) * (LANE_W / 0.72) * pl.lat * (side ? 1 : -1);
+        const lat = Math.max(4.8, (2.9 + ((m * 7 + side * 3) % 3) * 1.5) * (LANE_W / 0.72) * pl.lat * sc.open) * (side ? 1 : -1);
         const oy = Yf(d) + pl.y * (0.6 + 0.4 * Math.sin(now * 1.3 + m * 1.7 + side));
         this.pl(d, lat); setInst(pa, pi, this.qx, oy, this.qz, pl.w * nearK, h, pl.w * nearK, (m + side) * 0.7 - this.qt);
         const A1 = c.a1, A2 = c.a2, mixk = ((m + side) & 1) * 1.0, br = 0.35 + 0.9 * Math.min(1, v);
@@ -3849,7 +3859,7 @@ const R = {
       if (this.whT > 0) this.whT -= dt;
       const wh = this.whT > 0, whE = wh ? Math.sin(Math.PI * clamp(1 - this.whT / 2.6, 0, 1)) : 0;
       this.whE = whE;
-      const odW = !!g.odActive && g.state === 'playing' && !(Settings.cMotion || Settings.cSteady), wantStyle = odW ? 10 : wh ? 9 : (g.bt > 0.35 && g.state === 'playing') ? (S.horror ? 6 : 3) : S.tube, canTube = this.quality < 2 && g.state !== 'menu';
+      const odW = !!g.odActive && g.state === 'playing' && !(Settings.cMotion || Settings.cSteady), wantStyle = odW ? 10 : wh ? 9 : (g.bt > 0.35 && g.state === 'playing') ? (S.horror ? 6 : 3) : S.tube, canTube = (this.quality < 2 || wantStyle >= 9) && g.state !== 'menu';
       const tgt = canTube && wantStyle > 0 && wantStyle === this.tubeStyle ? 1 : 0;
       if (this.tubeMix < 0.03 && wantStyle !== this.tubeStyle) this.tubeStyle = wantStyle;
       this.tubeMix += (tgt - this.tubeMix) * Math.min(1, dt * (tgt ? (this.tubeStyle === 10 ? 9 : this.tubeStyle === 9 ? 5 : 1.6) : (this.tubeStyle >= 9 ? 5 : 3.2))); if (tgt === 0 && this.tubeMix < 0.01) this.tubeMix = 0;
