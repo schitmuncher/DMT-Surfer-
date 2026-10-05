@@ -3745,11 +3745,14 @@ const R = {
 
     // ---- the rig: the world slides, banks and pitches around the player's head (the headset itself is never moved) ----
     const alF = (g.alt || 0) * HI_Y * (Settings.cSteady ? 0.2 : 0.6), rk0 = g.roadK(songT), sxw = g.lat * LANE_W * rk0, hy = this.hy0, P = this.P || (this.P = new THREE.Vector3());
+    // clearance: the road rises ahead of the nose and behind the camera on crests and in dips, so lift the ship (and the eye) above whatever the surface does around them
+    const slT = Math.max(0, Yf(-1.0), Yf(1.0), Yf(2.2)) + (Settings.view === 'cockpit' ? 0.04 : 0.02) * Math.abs(Yf(1.6) - Yf(-1.6)); this.sLift = (this.sLift || 0) + (slT - (this.sLift || 0)) * Math.min(1, dt * (slT > (this.sLift || 0) ? 40 : 10));
     let ex, ey, ez;
-    if (fp) { ex = sxw; ey = 0.8 + alF + VEHICLES[this._veh < 0 ? 0 : this._veh].eye + 0.015 * Math.sin(now * 2.6); ez = SHIP_Z + 0.25; if (inXR) P.set(0, hy, 0); else P.set(0, 1.0, 0); }
+    if (fp) { ex = sxw; ey = 0.8 + this.sLift + alF + VEHICLES[this._veh < 0 ? 0 : this._veh].eye + 0.015 * Math.sin(now * 2.6); ez = SHIP_Z + 0.25; if (inXR) P.set(0, hy, 0); else P.set(0, 1.0, 0); }
     else if (inXR) { ex = 0; ey = hy + alF * 0.6; ez = 0; P.set(0, hy, 0); }
     else if (g.saber) { const rd = true; ex = 0; ey = rd ? 1.55 : 2.1; ez = rd ? 0.45 : 2.6; P.set(ex, ey, ez); }
     else { ex = sxw * 0.35; ey = 1.55 + alF; ez = 1.9; P.set(0, 1.55, 1.9); }
+    if (!fp && !g.saber) { const dC = -(ez - SHIP_Z), need = Math.max(Yf(dC), Yf(dC + 1.2), Yf(dC - 1.2)) + (inXR ? 0.55 : 0.8) + alF * 0.4, ec = Math.max(0, need - ey); this.cLift = (this.cLift || 0) + (ec - (this.cLift || 0)) * Math.min(1, dt * (ec > (this.cLift || 0) ? 40 : 8)); ey += this.cLift + this.sLift * 0.5; }
     const bkE = (g.saber || Settings.cSteady || Settings.cMotion) ? 0 : TrackShape.bankE(songT + 0.3), bank = (g.saber || Settings.cSteady) ? 0 : K * (clamp(g.kappa * 30 * (1 + 1.5 * bkE), -0.78, 0.78) + clamp(g.latVel * 0.028, -0.3, 0.3));
     this.rollA += (bank - this.rollA) * Math.min(1, dt * 6);
     const psiT = (g.saber || Settings.cSteady) ? 0 : this.evalS(this.shT, 9) * (inXR ? 0.55 : 1) * (Settings.corners === 'off' ? 0 : 1); this.yawA += (psiT - this.yawA) * Math.min(1, dt * 10);
@@ -3772,7 +3775,7 @@ const R = {
         const o = i * ROW_C + j, xl = this.colX[j], p = o * 3;
         this.pl(d, xl * LANE_W * g.roadK(rowT), 1); rp[p] = this.qx; rp[p + 1] = oy + this.qy; rp[p + 2] = this.qz; rt[o] = rowT;
         const pos = clamp(xl + 2, 0, 4), l0 = Math.min(3, pos | 0), f = pos - l0;
-        const v = E[l0] * (1 - f) + E[l0 + 1] * f, br = 0.05 + 0.85 * Math.pow(Math.min(1.2, v), 1.5);
+        const v = E[l0] * (1 - f) + E[l0 + 1] * f, br = 0.17 + 0.8 * Math.pow(Math.min(1.2, v), 1.5);
         const A0 = LANE_COL[l0], A1 = LANE_COL[l0 + 1];
         const kb = 1 + 0.7 * this.kick; rc[p] = (A0[0] * (1 - f) + A1[0] * f) * br * kb; rc[p + 1] = (A0[1] * (1 - f) + A1[1] * f) * br * kb; rc[p + 2] = (A0[2] * (1 - f) + A1[2] * f) * br * kb;
       }
@@ -3989,7 +3992,7 @@ const R = {
 
     // ---- ship (banks into the turns), halo, trail ----
     const bob = 0.04 * Math.sin(now * 3), roll = clamp(-g.latVel * 0.07 - g.kappa * 60, -0.7, 0.7);
-    this.ship.scale.setScalar(1.6); this.altV = g.alt || 0; this.ship.position.set(sxw, 0.32 + bob + this.altV * HI_Y, SHIP_Z); this.ship.rotation.z = roll; this.ship.rotation.x = 0.0;
+    this.ship.scale.setScalar(1.6); this.altV = g.alt || 0; this.ship.position.set(sxw, 0.32 + bob + this.altV * HI_Y + (this.sLift || 0), SHIP_Z); this.ship.rotation.z = roll; this.ship.rotation.x = 0.0;
     const hs2 = 1 + 0.25 * pulse + 0.5 * this.od + 0.35 * this.kick + 0.15 * this.low; { const k = clamp(this.high / (this.low + this.high + 0.15), 0, 1), c1 = this.curTheme ? this.curTheme.a1 : { x: 0.2, y: 0.87, z: 1 }, c2 = this.curTheme ? this.curTheme.a2 : { x: 1, y: 0.4, z: 0.9 }; this.halo.material.color.setRGB(0.2 + (c1.x * (1 - k) + c2.x * k) * 0.8, 0.5 + (c1.y * (1 - k) + c2.y * k) * 0.5, 0.7 + (c1.z * (1 - k) + c2.z * k) * 0.3); } this.halo.position.set(sxw, 0.03, SHIP_Z); this.halo.scale.set(hs2 * (1 + 0.5 * this.altV), hs2 * (1 + 0.5 * this.altV), hs2);       // the ring on the road is your shadow when you fly
     this.halo.material.color.setRGB(c.a1.x * (1 - this.od) + 1.0 * this.od, c.a1.y * (1 - this.od) + 0.85 * this.od, c.a1.z * (1 - this.od) + 0.3 * this.od);
     const tl2 = this.trailLat; for (let i = this.TN - 1; i > 0; i--) tl2[i] = tl2[i - 1]; tl2[0] = g.lat;
