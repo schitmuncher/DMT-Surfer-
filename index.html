@@ -96,7 +96,8 @@ const DIFFICULTIES = [
 const DEFAULT_SETTINGS = {
   difficulty: 1, speed: 1, control: 'point', ctlv: 2, flight: true, hand: 'right', sens: 1,
   vignette: true, haptics: 'full', hitVol: 0.6, musicVol: 0.9, offsetMs: 0,
-  quality: 'auto', refresh: 'auto', scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: false, chartSrc: 'map', favs: {}, tilt: 'auto', skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
+  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: true, mrHand: true, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true,
+  quality: 'auto', refresh: 'auto', scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
 };
 function applyModeView() {                       // each mode family remembers its own view; Drive-by defaults to the cockpit
   const g = Settings.mode === 'drive' ? 'D' : 'O'; if (g === Settings.vgrp) return;
@@ -149,10 +150,11 @@ function loadSettings() {
   if ((Settings.ctlv | 0) < 2) { Settings.control = 'point'; Settings.ctlv = 2; saveSettings(); }          // v7: pointing is the default (grip is still in Settings)
   if ((Settings.sndv | 0) < 1) { Settings.collectSound = false; Settings.sndv = 1; saveSettings(); }          // v5.9: the gem pluck is off by default (it is still one tap away in Settings)
   applyModeView();
+  if ((Settings.deathv | 0) < 1) { Settings.deaths = true; Settings.deathv = 1; saveSettings(); }          // v9: the show can end now: a rock meter fills with hits and drains with misses and crashes (Rules: Relaxed still never fails)
   if ((Settings.touchv | 0) < 2) { Settings.touch = 'lanes'; Settings.touchSpd = Math.max(1.25, Settings.touchSpd || 1.25); Settings.touchv = 2; saveSettings(); }          // v8: phones steer by tapping (sides or lanes) by default
   if ((Settings.hudv | 0) < 2) { Settings.hud = 'min'; Settings.hudv = 2; saveSettings(); }          // v5.3: the score panel is off by default (immersion); it is still one tap away in Settings
 }
-function saveSettings() { Store.set('dmtsurf.settings', JSON.stringify(Settings)); }
+function saveSettings() { Store.set('dmtsurf.settings', JSON.stringify(Object.assign({}, Settings, window.__mrRestore || {}))); }          // passthrough temporarily forces calm motion; those temporary values are never written back
 function loadScores() { try { return JSON.parse(Store.get('dmtsurf.scores') || '{}'); } catch (e) { return {}; } }
 const Scores = loadScores();
 function saveScore(key, rec) {
@@ -663,6 +665,7 @@ async function generateDemoSamples(onProgress, vi) {
 }
 
 // ===== AUDIO ENGINE: sample-accurate song clock, music + hit sounds =====
+const _la = new THREE.Vector3(), _lb = new THREE.Vector3();
 const AudioEng = {
   ctx: null, music: null, sfx: null, source: null, buffer: null,
   startAt: 0, t: -3, _have: false, ended: false, onEnded: null, lastSfx: 0, vol: 0.9,
@@ -720,20 +723,37 @@ const AudioEng = {
     if (Math.abs(e) > 0.1) this.t = m; else this.t += e * 0.12;
   },
 
+  // spatial sound: while `at` is set (a world position), hits and shots come from where they happen; HRTF panning follows your head in VR
+  dest() {
+    const a = this.at, c = this.ctx; if (!a || !c || !Settings.mrSpatial || !c.createPanner) return this.sfx;
+    try { const p = c.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 1.2; p.rolloffFactor = 0.45; if (p.positionX) { p.positionX.value = a.x; p.positionY.value = a.y; p.positionZ.value = a.z; } else p.setPosition(a.x, a.y, a.z); p.connect(this.sfx); setTimeout(() => { try { p.disconnect(); } catch (e) {} }, 2500); return p; } catch (e) { return this.sfx; }
+  },
+  at: null, _lp: { x: 0, y: 0, z: 0 },
+  listen(pos, q) {                                                       // call every frame in VR with the head pose
+    const c = this.ctx; if (!c || !c.listener) return; const L = c.listener, f = _la.set(0, 0, -1).applyQuaternion(q), u = _lb.set(0, 1, 0).applyQuaternion(q);
+    try { if (L.positionX) { L.positionX.value = pos.x; L.positionY.value = pos.y; L.positionZ.value = pos.z; L.forwardX.value = f.x; L.forwardY.value = f.y; L.forwardZ.value = f.z; L.upX.value = u.x; L.upY.value = u.y; L.upZ.value = u.z; } else { L.setPosition(pos.x, pos.y, pos.z); L.setOrientation(f.x, f.y, f.z, u.x, u.y, u.z); } } catch (e) {}
+  },
+  laneAt(lane) {                                                         // where a lane's gem is, in the space the ears live in
+    const x = (lane - 2) * LANE_W * Game.roadK(Game.songT);
+    if (UI.xr && R.world) { _la.set(x, 0.45, SHIP_Z); R.world.updateMatrixWorld(); R.world.localToWorld(_la); return { x: _la.x, y: _la.y, z: _la.z }; }
+    return { x: x * 0.7, y: 0.3, z: SHIP_Z * 0.5 };
+  },
   _tone(freq, dur, type, vol, when) {
     const c = this.ctx, o = c.createOscillator(), g = c.createGain();
     o.type = type; o.frequency.value = freq;
     const t = when || c.currentTime;
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(this.sfx); o.start(t); o.stop(t + dur + 0.02);
+    o.connect(g); g.connect(this.dest()); o.start(t); o.stop(t + dur + 0.02);
   },
   hit(lane, kind) { // pentatonic pluck per lane; gold is an octave up with a shimmer; perfect adds a fifth
     if (Game.saber && Game.weapon === 'fists' && kind !== 'bad') return;        // punching is silent apart from haptics + the visual burst
     if ((!Settings.collectSound && !Game.saber) || !this.ctx || this.ctx.state !== 'running') return;        // the gem pluck is optional; saber / punch hits always sound
     const now = this.ctx.currentTime; if (now - this.lastSfx < 0.03) return; this.lastSfx = now;
     const f = [392, 440, 523.25, 587.33, 659.25][clamp(lane, 0, 4)];
+    this.at = this.laneAt(lane);
     this._tone(kind === 'gold' ? f * 2 : f, kind === 'gold' ? 0.35 : 0.16, 'triangle', 0.5);
     if (kind === 'perfect' || kind === 'gold') this._tone(f * 1.5 * (kind === 'gold' ? 2 : 1), 0.12, 'sine', 0.22);
+    this.at = null;
   },
   // sustained 'streak' tone: a soft two-oscillator hum that glides with the hold's lane while you stay on it
   holdSet(on, laneF) {
@@ -754,7 +774,7 @@ const AudioEng = {
     if (!this.ctx || this.ctx.state !== 'running' || !this.sfx) return;
     const c = this.ctx, t = c.currentTime, n = c.createBufferSource(), nb = c.createBuffer(1, Math.floor(c.sampleRate * 0.22), c.sampleRate), d = nb.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2.2);
     const f = c.createBiquadFilter(), g = c.createGain(); f.type = punch ? 'lowpass' : 'highpass'; f.frequency.value = punch ? 1800 : 2600; g.gain.setValueAtTime(punch ? 0.45 : 0.34, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-    n.buffer = nb; n.connect(f); f.connect(g); g.connect(this.sfx); n.start(t); this._tone(punch ? 70 : 150, 0.16, 'sine', punch ? 0.5 : 0.22);
+    n.buffer = nb; n.connect(f); f.connect(g); g.connect(this.dest()); n.start(t); this._tone(punch ? 70 : 150, 0.16, 'sine', punch ? 0.5 : 0.22);
   },
   clang() {                                                // wrong colour: a dull metallic clank
     if (!this.ctx || this.ctx.state !== 'running') return; this._tone(330, 0.18, 'square', 0.12); this._tone(497, 0.14, 'square', 0.08);
@@ -785,9 +805,9 @@ const AudioEng = {
     if (!this.ctx || this.ctx.state !== 'running') return;
     const base = 330 * Math.pow(2, (t - 1) * 3 / 12); [1, 1.25, 1.5, 2].slice(0, 2 + Math.min(2, t)).forEach((r, i) => setTimeout(() => this._tone(base * r, 0.5, 'triangle', 0.22), i * 70));
   },
-  warnTick() {                                             // a small two-note blip: the world is about to flip
-    if (!this.ctx || this.ctx.state !== 'running') return;
-    this._tone(740, 0.09, 'sine', 0.22); setTimeout(() => this._tone(988, 0.12, 'sine', 0.22), 110);
+  warnTick(n) {                                            // the countdown before a flip: one clear blip per second, higher and sharper as it gets close
+    if (!this.ctx || this.ctx.state !== 'running') return; const k = n === undefined ? 2 : n;
+    this._tone(k >= 3 ? 620 : k === 2 ? 780 : 1040, 0.11, 'sine', 0.3); if (k <= 1) setTimeout(() => this._tone(1320, 0.14, 'sine', 0.3), 120);
   },
   hell() {                                                 // streak broken: the floor drops out
     if (!this.ctx || this.ctx.state !== 'running') return;
@@ -803,9 +823,9 @@ const AudioEng = {
     const c = this.ctx, t = c.currentTime, o = c.createOscillator(), g = c.createGain(), f0 = side ? 1250 : 1050;
     o.type = 'square'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(180, t + 0.11);
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.11, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
-    o.connect(g); g.connect(this.sfx); o.start(t); o.stop(t + 0.16);
+    const dst = this.dest(); o.connect(g); g.connect(dst); o.start(t); o.stop(t + 0.16);
     const n = c.createBufferSource(), nb = c.createBuffer(1, c.sampleRate * 0.05, c.sampleRate), d = nb.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2);
-    const ng = c.createGain(); ng.gain.value = 0.12; n.buffer = nb; n.connect(ng); ng.connect(this.sfx); n.start(t);
+    const ng = c.createGain(); ng.gain.value = 0.12; n.buffer = nb; n.connect(ng); ng.connect(dst); n.start(t);
   },
   boom() {
     if (!this.ctx || this.ctx.state !== 'running') return;
@@ -831,6 +851,13 @@ const BOSSES = {                                            // kind: [name, mode
   cerberus: ['CERBERUS', 24, 11, 9], reaper: ['THE REAPER', 16, 13, 8], seraph: ['THE FALLEN SERAPH', 11, 16, 10], sphinx: ['THE SPHINX', 20, 12, 9], goddess: ['THE DARK GODDESS', 14, 13, 8], jaws: ['THE MAW', 10, 15, 9], phoenix: ['THE ASH PHOENIX', 11, 16, 9] };
 const BOSS_ORDER = ['demon', 'dragon', 'kraken', 'medusa', 'titan', 'cerberus', 'reaper', 'seraph', 'sphinx', 'goddess', 'jaws', 'phoenix'], BOSS_HP = [14, 22, 30, 40], BOSS_D = 84;
 const STREAK_NAMES = ['', 'HEATING UP', 'ON FIRE', 'ASCENDED', 'TRANSCENDENT'];
+function ghostLoad(key) {
+  try { const o = JSON.parse(Store.get(key) || 'null'); if (!o || !o.l || !o.a) return null; const dec = (b) => { const s = atob(b), a = new Int8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i) << 24 >> 24; return a; }; return { lat: dec(o.l), alt: dec(o.a) }; } catch (e) { return null; }
+}
+function ghostSave(key, rec) {
+  try { const enc = (arr) => { let last = 0, n = arr.length, s = ''; for (let i = 0; i < n; i++) { if (arr[i] === undefined) arr[i] = last; last = arr[i]; s += String.fromCharCode(arr[i] & 255); } return btoa(s); }; Store.set(key, JSON.stringify({ l: enc(rec.lat), a: enc(rec.alt) })); } catch (e) {}
+}
+function ghostAt(gh, t) { const f = clamp(t * 10, 0, gh.lat.length - 1.001), i = f | 0, k = f - i; return { lat: (gh.lat[i] + (gh.lat[i + 1] - gh.lat[i]) * k) / 50, alt: (gh.alt[i] + (gh.alt[i + 1] - gh.alt[i]) * k) / 100 }; }
 const SABER_K = 0.6, LANE_W = 1.44, STEER_W = 0.72, SHIP_Z = -3.2, LEAD_IN = 3.0, OD_TIME = 8;
 const HIT_NONE = 0, HIT_GOT = 1, HIT_MISS = 2, HIT_PASS = 3, HIT_STRUCK = 4;
 
@@ -1089,9 +1116,10 @@ const Game = {
     for (const c of this.corners) { c.ok = null; c.best = undefined; }
     this.score = this.combo = this.maxCombo = this.hits = this.misses = this.perfects = this.golds = this.struck = 0;
     this.stk = 0; this.hellT = 0; this.hellDur = 1; this.pc = 0; this.tierPop = 0; this.tierName = '';
-    this.mult = this.lastMult = 1; this.energy = this.saber ? 60 : 100; this.od = 0; this.odActive = false; this.odLeft = 0;
+    this.mult = this.lastMult = 1; this.energy = this.saber ? 60 : 70; this.od = 0; this.odActive = false; this.odLeft = 0;
     this.failed = false; this.newBest = false; this.result = null; this.resolved = 0; this.flash = 0; this.fx.length = 0;
     this.lat = 0; this.latTarget = 0; this.latVel = 0;
+    this.gOn = !this.saber && !this.drive && !this.journey && !Queue.run; this.gKey = 'dmtsurf.ghost.' + track.key + ':' + diff; this.gRec = this.gOn ? { lat: [], alt: [] } : null; this.ghost = this.gOn ? ghostLoad(this.gKey) : null;          // your best run, replayed as a faint ship
     TrackShape.set(this.a, this.secs, this.secTurn, this.corners, this.speed);
     this.cornerIdx = 0; this.cornersOK = 0; this.cornersAll = 0; this.nextCorner = null; this.shields = this.shieldMax = 3; this.inv = 0; this.nextShieldAt = 28; this.bt = 0; this.yaw = 0; this.wallsClean = 0; this.hurts = 0;
     this.holds = this.notes.filter(n => n.type === NOTE_HOLD); this.holdIdx = 0; this.holding = false; this.streaks = this.drops = this.tickGot = this.tickAll = 0;
@@ -1139,12 +1167,16 @@ const Game = {
   wrongColour(n, side, q) { n.hit = HIT_STRUCK; this.struck++; if (q) this.emit({ k: 'saberWrong', side, col: q.col, px: q.px, py: q.py, pz: q.pz, vx: q.vx, vy: q.vy, vz: q.vz }); this.sabHurt(12, 'colour', side); },
   hurt(kind, x) {                                        // one shield per hit, with a short grace period so a wall can't double-hit
     if (this.odActive || this.inv > 0) return false;
-    this.hurts++; this.combo = 0; this.mult = 1; this.lastMult = 1; this.flash = 1; this.shake = 1; this.inv = 0.9; this.nextShieldAt = 28;
-    if (Settings.rules !== 'relaxed') this.shields = Math.max(0, this.shields - 1);
-    this.energy = this.shields / this.shieldMax * 100;
+    this.hurts++; this.combo = 0; this.mult = 1; this.lastMult = 1; this.flash = 1; this.shake = 1; this.inv = 0.9;
     AudioEng.bad(); this.emit({ k: 'bad', lane: clamp(Math.round((x || 0) + 2), 0, 4), x: x || 0, why: kind });
-    if (Settings.deaths && Settings.rules !== 'relaxed' && this.shields <= 0 && !this.ended) this.finish(true);
+    this.meterAdd(-20);
     return true;
+  },
+  // the rock meter: hits fill it, misses drain it a little, crashes drain it a lot. Empty = the show is over (when deaths are on and the rules are not relaxed)
+  meterAdd(d) {
+    if (this.saber || this.journey || this.state !== 'playing') return; const relaxed = Settings.rules === 'relaxed';
+    this.energy = clamp(this.energy + d, relaxed ? 10 : 0, 100);
+    if (Settings.deaths && !relaxed && this.energy <= 0 && !this.ended) this.finish(true);
   },
   resolve(n) {
     if (n.hit !== HIT_NONE) return;                       // already shot down in drive-by mode
@@ -1165,6 +1197,7 @@ const Game = {
       n.hit = HIT_MISS; this.misses++;
       if (this.combo >= 8) this.emit({ k: 'break' });
       this.combo = 0; this.mult = this.odActive ? 2 : 1; this.lastMult = this.mult;
+      this.meterAdd(-4 * [0.5, 1, 1.25, 1.5][clamp(this.diff | 0, 0, 3)]);
     }
   },
 
@@ -1261,6 +1294,7 @@ const Game = {
     this.mult = Math.min(8, 1 + Math.floor(this.combo / 8)) * (this.odActive ? 2 : 1);
     this.score += Math.round((gold ? 300 : n.small ? 70 : 100) * this.mult * (perfect ? 1.5 : 1) * k);
     if (!this.odActive) this.od = Math.min(1, this.od + (gold ? 0.09 : 0.028));
+    this.meterAdd(gold ? 3 : perfect ? 2.1 : 1.5);
     AudioEng.hit(n.lane, gold ? 'gold' : perfect ? 'perfect' : 'norm');
     this.emit({ k: 'hit', lane: n.lane, x: n.lane - 2, gold, perfect, shot: k < 1 });
     if (this.mult !== this.lastMult) { this.comboPop = 1; this.lastMult = this.mult; }
@@ -1280,7 +1314,7 @@ const Game = {
   fire(shot) {                                             // a pistol went off (flat click / tap / key, or a VR trigger): the renderer finds what it hit
     if (this.state !== 'playing' || !this.drive) return false;
     const now = performance.now(), s = shot.side | 0; if (now - this.lastFire[s] < 85) return false; this.lastFire[s] = now;
-    if (this.shotQ.length < 8) this.shotQ.push(shot); this.shots++; AudioEng.pew(s); this.emit({ k: 'shoot', side: s }); return true;
+    if (this.shotQ.length < 8) this.shotQ.push(shot); this.shots++; AudioEng.at = (typeof UI !== 'undefined' && UI.xr && Input.hands[s ? 'right' : 'left']) ? Input.hands[s ? 'right' : 'left'].o : null; AudioEng.pew(s); AudioEng.at = null; this.emit({ k: 'shoot', side: s }); return true;
   },
   shootNote(n, pos) {                                       // drive-by: a bolt found this note. Gems are collected from a distance, hazards are blown up
     if (this.state !== 'playing' || n.hit !== HIT_NONE || n.type === NOTE_HOLD) return false;
@@ -1333,6 +1367,7 @@ const Game = {
     this.result.reward = Profile.reward(this.result, this); if (this.result.reward.ach.length) UI.toast('Achievement: ' + this.result.reward.ach.join(', '));
     const key = this.track.key + ':' + this.diff + (this.saber ? ':' + this.weapon : this.drive ? ':drive' : '');
     if (!failed && !this.journey && !Queue.run) this.newBest = saveScore(key, { score: this.score, grade: this.result.grade, acc, combo: this.maxCombo });
+    if (this.newBest && this.gRec) ghostSave(this.gKey, this.gRec);
     AudioEng.stop();
   },
 
@@ -1369,6 +1404,7 @@ const Game = {
         this.build += (bl - this.build) * Math.min(1, dt * 6); this.hype += (hy - this.hype) * Math.min(1, dt * 1.2); this.rush = Math.max(rb, this.hype) ; }
             this.roll = this.rolls.length ? rollAt(this.rolls, this.songT) : 0; this.rollWarn = null; for (const e of this.rolls) if (e.t0 > this.songT && e.t0 - this.songT < 2.6) { this.rollWarn = e; break; }
             if (this.rollWarn && this.rollWarn !== this._rwE) this.emit({ k: 'rollWarn', turn: !!this.rollWarn.turn }); this._rwE = this.rollWarn || this._rwE;
+            { const wk = this.rollWarn ? Math.ceil(this.rollWarn.t0 - this.songT) : 0; if (wk !== this._rwK) { this._rwK = wk; if (wk > 0) this.emit({ k: 'rollTick', n: wk }); } }
       const th = this.roll || 0, rc = Math.cos(th), rs = Math.sin(th), sx = this.latTarget / 2.15, sy = this.flight && !this.journey ? clamp(Input.liftV || 0, -1, 1) : 0;        // what you ask for is what you see on screen: the road's lane axis lies along (cos, sin) of the roll and its 'up' along (-sin, cos)
       const want = this.saber ? 0 : clamp((sx * rc + sy * rs) * 2.15, -2.15, 2.15), prev = this.lat;
       { const tgt = this.flight && !this.journey ? clamp(-sx * rs + sy * rc, 0, 1) : 0; this.alt += (tgt - this.alt) * Math.min(1, dt * 7); }
@@ -1393,9 +1429,7 @@ const Game = {
         else this.hurt('corner', this.lat);
       }
       const nc = this.corners[this.cornerIdx]; this.nextCorner = nc && nc.t - this.songT < 6 ? { dt: nc.t - this.songT, dir: nc.dir, amp: nc.amp } : null;
-      if (this.saber) this.shields = clamp(Math.ceil(this.energy / 33.4), 0, 3);
-      else if (this.combo === 0) this.nextShieldAt = 28;
-      else if (this.combo >= this.nextShieldAt) { if (this.shields < this.shieldMax) { this.shields++; this.energy = this.shields / this.shieldMax * 100; this.emit({ k: 'shield' }); } this.nextShieldAt = this.combo + 28; }
+      if (!this.journey) this.shields = clamp(Math.ceil(this.energy / 33.4), 0, 3);
       if (this.songT > a.dur + 1.2 && !this.chaining) this.finish(false);
     }
     // the track turns and rolls with the music (see TrackShape); the renderer integrates the shape into road geometry
@@ -1403,6 +1437,7 @@ const Game = {
     if (a && (this.state === 'playing' || this.state === 'paused' || this.state === 'results')) {
       const t = this.songT;
       this.intensity += (curveAt(a, Math.max(0, t)) - this.intensity) * Math.min(1, dt * 3);
+      if (this.gRec && this.state === 'playing' && t >= 0) { const gi = (t * 10) | 0; if (gi < 6000) { this.gRec.lat[gi] = Math.round(clamp(this.lat, -2.2, 2.2) * 50); this.gRec.alt[gi] = Math.round(clamp(this.alt || 0, 0, 1) * 100); } }
       let sI = 0; for (const x of this.secs) { if (x <= t + 2.0) sI++; else break; }          // the next world opens ahead of the section, so it has fully arrived when the chorus lands
       if (sI !== this.secIdx) { this.secIdx = sI; this.sceneIdx = this.secScene[Math.min(sI, this.secScene.length - 1)]; this.sceneFlash = 3.2; this.turnDir = this.secTurn[Math.min(sI, this.secTurn.length - 1)]; this.emit({ k: 'scene', i: this.sceneIdx }); }
     } else if (!a) {
@@ -1709,7 +1744,7 @@ const R = {
     const U = this.U = {
       uRush: { value: 0 }, uTime: { value: 0 }, uBeat: { value: 0 }, uPeriod: { value: 0.48 }, uPhase: { value: 0 }, uOD: { value: 0 }, uInt: { value: 0.5 },
       uHz: { value: this.curTheme.hz }, uZn: { value: this.curTheme.zn }, uA1: { value: this.curTheme.a1 }, uA2: { value: this.curTheme.a2 }, uGrid: { value: this.curTheme.gr },
-      uFogColor: { value: new THREE.Vector3() }, uFogNear: { value: 40 }, uFogFar: { value: 150 }, uTrip: { value: 1 }, uScale: { value: 400 },
+      uFogColor: { value: new THREE.Vector3() }, uFogNear: { value: 40 }, uFogFar: { value: 150 }, uTrip: { value: 1 }, uScale: { value: 400 }, uMR: { value: 0 }, uMRs: { value: 1 }, uMRb: { value: 1 },
       uLow: { value: 0 }, uMd: { value: 0 }, uHigh: { value: 0 }, uHead: { value: 0 }, uC: { value: new THREE.Vector2(0, 0.25) }, uSkyA: { value: 0 }, uSkyB: { value: 0 }, uMix: { value: 1 }, uGM: { value: 0 }, uSides: { value: 40 }, uSide: { value: 0 }, uTick: { value: 0.12 }, uCor: { value: new THREE.Vector4(0, 0, 0, 0) }, uSpike: { value: 0 }, uHor: { value: 0 }, uRoad: { value: new THREE.Vector4(0, 0, 0, 0) }, uRTint: { value: new THREE.Vector3(1, 1, 1) }, uTube: { value: new THREE.Vector4(0, 0, 1, 0) }, uTravel: { value: 0 }, uShipX: { value: 0 }, uQ: { value: new THREE.Vector4(0, 0, 0, 0) }
     };
     this.sc = { cur: 0, prev: 0, mix: 1, swapped: true, gm: 0, gs: 1, sides: 40, spin: 0, spinPh: 0, pil: Object.assign({}, PIL_STYLES[0]), mount: 0.45, open: 1, tfam: 0, tcol: 0 };
@@ -1722,19 +1757,30 @@ const R = {
     await P(0.25, 'Pillars'); this.buildPillars();
     await P(0.40, 'Creatures'); this.buildCreatures();
     await P(0.55, 'Track'); this.buildGates(); this.buildTube(); this.buildNotes(); this.buildGlow(); this.buildHolds();
-    await P(0.65, 'Ship'); this.buildShip(); this.buildParticles(); this.buildMotes(); this.buildCockpit();
-    this.setQuality(0);
+    await P(0.65, 'Ship'); this.buildShip(); this.buildGhost(); this.buildWarn(); this.buildParticles(); this.buildMotes(); this.buildCockpit();
+    this.setQuality(0); this.mrAdditive();
     await P(0.75, 'Compiling shaders');
     if (!TOUCH) this.precompile(); else { this.skyReady = new Set([0]); this.bgQ = null; }
     await P(0.92, 'Almost there');
     this.ready = true;
   },
 
-  mat(vs, fs, extra) { return new THREE.ShaderMaterial(Object.assign({ uniforms: this.U, vertexShader: vs, fragmentShader: fs }, extra || {})); },
+  // passthrough (mixed reality) support: every world shader writes premultiplied colour, with the alpha fading with fog so distant track dissolves into the real room instead of into black.
+  // uMR = 1 only inside a passthrough session; uMRs fades the scenery (sky, floor, pillars, gates, creatures) and uMRb scales effect brightness. Outside passthrough all three are neutral, so the picture is unchanged.
+  mat(vs, fs, extra) {
+    const o = Object.assign({}, extra || {}), scn = !!o.scn; delete o.scn;
+    if (fs.indexOf('uniform float uMR;') < 0) fs = 'uniform float uMR; uniform float uMRs; uniform float uMRb;\n' + fs;
+    if (/\bvF\b/.test(fs)) fs = fs.replace(/gl_FragColor = vec4\(col, 1\.0\);/g, scn ? 'gl_FragColor = vec4(col * uMRb * uMRs, (1.0 - uMR * vF) * uMRs);' : 'gl_FragColor = vec4(col * uMRb, 1.0 - uMR * vF);');
+    return new THREE.ShaderMaterial(Object.assign({ uniforms: this.U, vertexShader: vs, fragmentShader: fs }, o));
+  },
+  mrAdditive() {                                                       // additive glows must add light without painting alpha, or they would blot out the room behind them in passthrough (colour result is identical to ordinary additive)
+    const seen = new Set(), fix = (m) => { if (!m || seen.has(m) || m.blending !== THREE.AdditiveBlending) return; seen.add(m); m.blending = THREE.CustomBlending; m.blendEquation = THREE.AddEquation; m.blendSrc = THREE.SrcAlphaFactor; m.blendDst = THREE.OneFactor; m.blendSrcAlpha = THREE.ZeroFactor; m.blendDstAlpha = THREE.OneFactor; m.needsUpdate = true; };
+    this.scene.traverse((o) => { const m = o.material; if (Array.isArray(m)) m.forEach(fix); else fix(m); });
+  },
 
   buildSky() {
     const vs = `varying vec3 vDir; void main() { vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p.xyww; }`;
-    const HEAD = `precision highp float; varying vec3 vDir; ${COMMON_U} uniform float uTrip; uniform vec3 uFogColor;
+    const HEAD = `precision highp float; varying vec3 vDir; ${COMMON_U} uniform float uTrip; uniform vec3 uFogColor; uniform float uMR; uniform float uMRs; uniform float uMRb;
 
       float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float hash3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
@@ -2867,7 +2913,7 @@ const R = {
         col = mix(uFogColor, col, smoothstep(-0.03, 0.09, d.y));
         col *= 0.88 + 0.42 * uBeat;
         col = mix(col, col * col * 1.6 + col * 0.4, clamp(uRush * 0.6, 0.0, 0.6)) * (1.0 + 0.35 * uRush);   // a chorus lands: colours saturate and the whole sky surges
-        gl_FragColor = vec4(col, 1.0);
+        gl_FragColor = vec4(col * uMRs * uMRb, uMRs * mix(1.0, smoothstep(-0.3, 0.02, d.y), uMR));      // passthrough: the sky is a see-through veil, and never darkens the real floor
       }`;
     // one small program per scene (so no GPU ever pays for the other eight); the incoming scene is drawn over the old one through a growing portal
     const geo = new THREE.SphereGeometry(100, 24, 14);
@@ -3065,7 +3111,7 @@ const R = {
         col = mix(col, uFogColor, vF);
         gl_FragColor = vec4(col, 1.0);
       }`;
-    this.ground = new THREE.Mesh(g, this.mat(vs, fs)); this.ground.frustumCulled = false; this.rig.add(this.ground);
+    this.ground = new THREE.Mesh(g, this.mat(vs, fs, { scn: true })); this.ground.frustumCulled = false; this.rig.add(this.ground);
   },
 
   buildPillars() {
@@ -3076,7 +3122,7 @@ const R = {
       void main() { vec3 pp3 = position; pp3.xz *= mix(1.0, 1.0 - 0.96 * position.y, uSpike); vec4 mv = modelViewMatrix * instanceMatrix * vec4(pp3, 1.0); gl_Position = projectionMatrix * mv; vCol = aCol; vY = position.y; vF = fogF(-mv.z); }`;
     const fs = `precision highp float; varying vec3 vCol; varying float vY; varying float vF; ${COMMON_U} ${FOG_GLSL}
       void main() { vec3 col = vCol * (0.3 + 0.95 * vY) * (1.0 + 0.5 * uBeat); col = mix(col, uFogColor, vF); gl_FragColor = vec4(col, 1.0); }`;
-    this.pillars = new THREE.InstancedMesh(g, this.mat(vs, fs), this.pillarCap);
+    this.pillars = new THREE.InstancedMesh(g, this.mat(vs, fs, { scn: true }), this.pillarCap);
     this.pillars.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.pillars.frustumCulled = false; this.rig.add(this.pillars);
   },
 
@@ -3091,7 +3137,7 @@ const R = {
         vec4 mv = modelViewMatrix * instanceMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv; vCol = aCol; vF = fogF(-mv.z); }`;
     const fs = `precision highp float; varying vec3 vCol; varying float vF; ${COMMON_U} ${FOG_GLSL}
       void main() { vec3 col = mix(vCol, uFogColor, vF); gl_FragColor = vec4(col, 1.0); }`;
-    this.gates = new THREE.InstancedMesh(g, this.mat(vs, fs), this.gateCap);
+    this.gates = new THREE.InstancedMesh(g, this.mat(vs, fs, { scn: true }), this.gateCap);
     this.gates.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.gates.frustumCulled = false; this.rig.add(this.gates);
   },
 
@@ -3133,7 +3179,7 @@ const R = {
         vec3 col = lc * pat * (1.1 + 1.6 * uBeat + 0.6 * uOD) + uZn * 0.5 * (0.4 + body) + lc * body * 0.5;
         col = st > 8.5 ? mix(col, lc * 2.2 + 0.5, vF * vF) : mix(col, uFogColor, vF * 0.9);   // the wormhole ends in a blinding light
         float a = uTube.y * (0.5 + 0.5 * clamp(pat, 0.0, 1.0)) * (1.0 - vF * 0.8); if (st > 9.5) a = uTube.y * (0.72 + 0.28 * clamp(pat, 0.0, 1.0)) * (1.0 - vF * 0.7);
-        gl_FragColor = vec4(col, a);
+        gl_FragColor = vec4(col, a * (0.35 + 0.65 * uMRs));
       }`;
     this.tube = new THREE.Mesh(g, this.mat(vs, fs, { transparent: true, depthWrite: false, side: THREE.DoubleSide }));
     this.tube.frustumCulled = false; this.tube.renderOrder = 3; this.tube.visible = false; this.rig.add(this.tube);
@@ -3246,6 +3292,22 @@ const R = {
     this.sb = { left: { p: new THREE.Vector3(), v: new THREE.Vector3(), ok: false, sp: 0 }, right: { p: new THREE.Vector3(), v: new THREE.Vector3(), ok: false, sp: 0 } };
   },
 
+  buildWarn() {                                                          // a big floating countdown ahead of every flip or barrel roll: impossible to miss in the headset
+    const cv = document.createElement('canvas'); cv.width = 640; cv.height = 240; const tex = new THREE.CanvasTexture(cv); tex.minFilter = THREE.LinearFilter;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false })); sp.scale.set(3.8, 1.43, 1); sp.visible = false; sp.renderOrder = 1001; sp.frustumCulled = false; this.world.add(sp);
+    this.warnS = { sp, cv, tex, key: '' };
+  },
+  warnDraw(n, turn, fl) {
+    const W = this.warnS, g = W.cv.getContext('2d'), col = fl ? '#ff5cf0' : '#19e3ff'; g.clearRect(0, 0, 640, 240);
+    g.fillStyle = 'rgba(8,4,28,0.86)'; UI.rr.call({ g }, 8, 8, 624, 224, 44); g.fill(); g.lineWidth = 9; g.strokeStyle = col; g.stroke();
+    g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = UI.font(58, 900); g.fillText(turn ? 'BARREL ROLL' : 'WORLD FLIPS', 360, 108); g.font = UI.font(32, 700); g.fillStyle = col; g.fillText(turn ? 'hold your line: it spins' : 'upside down: left and right swap', 360, 160);
+    g.font = UI.font(120, 900); g.fillStyle = col; g.fillText(String(n), 112, 168); g.font = UI.font(70, 900); g.fillStyle = '#fff'; g.fillText(turn ? '⟳' : '⟲', 575, 120);
+    W.tex.needsUpdate = true;
+  },
+  buildGhost() {                                                         // your best run on this song: a faint, slowly turning diamond that flies the line you flew
+    const m = this.ghostM = new THREE.Mesh(new THREE.OctahedronGeometry(0.2, 0).scale(1, 0.6, 1.6), new THREE.MeshBasicMaterial({ color: 0x9ff4ff, transparent: true, opacity: 0.42, depthWrite: false, blending: THREE.AdditiveBlending }));
+    m.visible = false; m.frustumCulled = false; this.rig.add(m);
+  },
   buildShip() {
     this.ship = new THREE.Group();
     const body = new THREE.ConeGeometry(0.12, 0.62, 5); body.rotateX(-Math.PI / 2);
@@ -3733,6 +3795,7 @@ const R = {
     mixv(c.hz, pal.hz); mixv(c.zn, pal.zn); mixv(c.a1, pal.a1); mixv(c.a2, pal.a2); mixv(c.gr, pal.gr);
     U.uFogColor.value.set(c.hz.x * 0.42 + c.zn.x * 0.3, c.hz.y * 0.42 + c.zn.y * 0.3, c.hz.z * 0.42 + c.zn.z * 0.3);
     if (this.hl > 0.01) { const f = U.uFogColor.value, h = this.hl * 0.6; f.set(f.x + (0.22 - f.x) * h, f.y * (1 - h), f.z * (1 - h)); }
+    if (U.uMR.value > 0) U.uFogColor.value.multiplyScalar(1 - U.uMR.value);
     U.uFogNear.value = 40 * clamp(0.5 + 0.5 * sc.open, 0.6, 1.35) * (1 - 0.45 * this.hl - 0.5 * tw * fkk0) * (1 + 0.5 * dfe); U.uFogFar.value = 172 * clamp(0.55 + 0.45 * sc.open, 0.62, 1.0) * (1 - 0.3 * this.hl - 0.3 * tw * fkk0) * (1 + 0.35 * dfe);
     { const hd = this._hd === undefined ? (this._hd = document.getElementById('hell')) : this._hd; if (hd) { const o = Math.round((Settings.cCalm ? 0 : this.hl) * 100) / 100; if (o !== this._ho) { this._ho = o; hd.style.opacity = o; } } }
     this.odPop = Math.max(0, (this.odPop || 0) - dt * 1.3); U.uRush.value = Math.max(U.uRush.value, this.od * 0.45, this.odPop * 1.1 * (Settings.cFlash ? 0.5 : 1), (this.whE || 0) * 0.9, this.sv * 0.5 * (Settings.cFlash ? 0.5 : 1));
@@ -4002,6 +4065,8 @@ const R = {
 
     // ---- ship (banks into the turns), halo, trail ----
     const bob = 0.04 * Math.sin(now * 3), roll = clamp(-g.latVel * 0.07 - g.kappa * 60, -0.7, 0.7);
+    { const G = this.ghostM, gh = g.ghost, on = !!(G && gh && g.state === 'playing' && Settings.mrGhost && songT >= 0 && gh.lat.length > 3); if (G) { G.visible = on; if (on) { const s = ghostAt(gh, songT); G.position.set(s.lat * LANE_W * rk0, 0.4 + s.alt * HI_Y + 0.05 * Math.sin(now * 3), SHIP_Z); G.rotation.y += dt * 1.6; } } }
+    { const W = this.warnS, rw = g.rollWarn, on = !!(W && rw && UI.xr && g.state === 'playing' && songT > 0 && !Settings.cSteady); if (W) { W.sp.visible = on; if (on) { const n = Math.max(1, Math.ceil(rw.t0 - songT)), fl = Math.floor(now * 7) % 2, key = n + '|' + fl + '|' + (rw.turn ? 1 : 0); if (key !== W.key) { W.key = key; this.warnDraw(n, !!rw.turn, fl); } const pu = 1 + 0.05 * Math.sin(now * 14); W.sp.position.set(0, 2.15 + 0.05 * Math.sin(now * 3), -7.5); W.sp.scale.set(3.8 * pu, 1.43 * pu, 1); } } }
     this.ship.scale.setScalar(1.6); this.altV = g.alt || 0; this.ship.position.set(sxw, 0.32 + bob + this.altV * HI_Y + (this.sLift || 0), SHIP_Z); this.ship.rotation.z = roll; this.ship.rotation.x = 0.0;
     const hs2 = 1 + 0.25 * pulse + 0.5 * this.od + 0.35 * this.kick + 0.15 * this.low; { const k = clamp(this.high / (this.low + this.high + 0.15), 0, 1), c1 = this.curTheme ? this.curTheme.a1 : { x: 0.2, y: 0.87, z: 1 }, c2 = this.curTheme ? this.curTheme.a2 : { x: 1, y: 0.4, z: 0.9 }; this.halo.material.color.setRGB(0.2 + (c1.x * (1 - k) + c2.x * k) * 0.8, 0.5 + (c1.y * (1 - k) + c2.y * k) * 0.5, 0.7 + (c1.z * (1 - k) + c2.z * k) * 0.3); } this.halo.position.set(sxw, 0.03, SHIP_Z); this.halo.scale.set(hs2 * (1 + 0.5 * this.altV), hs2 * (1 + 0.5 * this.altV), hs2);       // the ring on the road is your shadow when you fly
     this.halo.material.color.setRGB(c.a1.x * (1 - this.od) + 1.0 * this.od, c.a1.y * (1 - this.od) + 0.85 * this.od, c.a1.z * (1 - this.od) + 0.3 * this.od);
@@ -4304,7 +4369,7 @@ void main() {
   vec4 mv = modelViewMatrix * instanceMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv;
   vN = normalize(mat3(modelViewMatrix) * mat3(instanceMatrix) * n); vK = aK; vVw = -mv.xyz; vF = fogF(-mv.z); vHy = p.y;
 }`;
-const CR_FS = `precision highp float; uniform float uHaz; varying vec3 vN; varying float vK; varying float vF; varying vec3 vVw; varying float vHy; ${COMMON_U} ${FOG_GLSL}
+const CR_FS = `precision highp float; uniform float uMR; uniform float uMRs; uniform float uMRb; uniform float uHaz; varying vec3 vN; varying float vK; varying float vF; varying vec3 vVw; varying float vHy; ${COMMON_U} ${FOG_GLSL}
 void main() {
   vec3 n = normalize(vN); if (!gl_FrontFacing) n = -n;
   float dif = 0.3 + 0.7 * max(0.0, dot(n, normalize(vec3(0.35, 0.7, 0.6)))), rim = pow(1.0 - clamp(abs(dot(n, normalize(vVw))), 0.0, 1.0), 2.4);
@@ -4316,7 +4381,7 @@ void main() {
   else col = vec3(0.78, 0.72, 0.62) * 0.55 * dif + uA1 * rim * 0.5;
   col += uA2 * smoothstep(0.0, 1.6, vHy) * 0.05;
   col = mix(col, uFogColor, vF * 0.5);
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(col * uMRb * uMRs, (1.0 - uMR * vF) * uMRs);
 }`;
 
 Object.assign(R, {
@@ -5023,7 +5088,7 @@ const Input = {
       const side = src.handedness; if ((side !== 'left' && side !== 'right') || !src.targetRaySpace) continue;
       const pose = frame.getPose(src.targetRaySpace, ref); if (!pose) continue;
       const p = pose.transform.position, q = pose.transform.orientation, h = this._h[side], gp = src.gamepad;
-      h.o.set(p.x, p.y, p.z); h.q.set(q.x, q.y, q.z, q.w); h.d.set(0, 0, -1).applyQuaternion(h.q); h.gp = gp;
+      h.o.set(p.x, p.y, p.z); h.q.set(q.x, q.y, q.z, q.w); h.d.set(0, 0, -1).applyQuaternion(h.q); h.gp = gp; h.isHand = !!src.hand;
       for (let i = 0; i < 6; i++) h.btn[i] = !!(gp && gp.buttons[i] && gp.buttons[i].pressed);
       if (this.selDown[side]) h.btn[0] = true;                        // hand-tracking pinch = trigger
       const ax = gp ? gp.axes : null;
@@ -5137,6 +5202,7 @@ const Input = {
     if (cr > 0.05) { this.hapticAll(0.1 + 0.3 * cr, 40); this.vib(14 + 20 * cr | 0); }
     else if (nc && nc.dt < 1.6 && nc.dt > 0.9) { this._wt = (this._wt || 0) + dt; if (this._wt > 0.22) { this._wt = 0; this.haptic(nc.dir > 0 ? 'right' : 'left', 0.25, 26); this.vib(18); } }   // a pulse on the side you need to move to
     if (g.bt > 0.5) { this.hapticAll(0.06, 40); }
+    if (!g.journey && g.energy < 25 && Settings.deaths && g.songT > 2) { this._hb = (this._hb || 0) + dt; if (this._hb > 0.75) { this._hb = 0; this.hapticAll(0.3, 40); setTimeout(() => this.hapticAll(0.2, 40), 140); } }          // a heartbeat in your hands when the meter is nearly empty
     if (g.build > 0.15) { this._rb = (this._rb || 0) + dt; if (this._rb > 0.09) { this._rb = 0; this.hapticAll(0.05 + 0.3 * g.build, 24); } }       // the riser: a rumble that climbs until the drop
   },
   onGameEvent(ev) {
@@ -5146,7 +5212,8 @@ const Input = {
     else if (ev.k === 'bad') { this.hapticAll(0.95, 160); this.vib([60, 30, 120]); }
     else if (ev.k === 'smash') { this.hapticAll(0.6, 70); this.vib(40); }
     else if (ev.k === 'drop') { this.hapticAll(0.9, 260); this.vib([40, 30, 90]); }
-    else if (ev.k === 'rollWarn') { this.hapticAll && this.hapticAll(0.35, 70); this.vib && this.vib([25, 40, 25]); AudioEng.warnTick && AudioEng.warnTick(); }
+    else if (ev.k === 'rollTick') { this.hapticAll(0.25 + 0.15 * (3 - Math.min(3, ev.n)), 60); AudioEng.warnTick && AudioEng.warnTick(ev.n); }
+    else if (ev.k === 'rollWarn') { this.hapticAll && this.hapticAll(0.35, 70); this.vib && this.vib([25, 40, 25]); }
     else if (ev.k === 'power') { this.hapticAll(1, 240); this.vib([40, 30, 40, 30, 120]); }
     else if (ev.k === 'bossSlam') { this.hapticAll(0.7, 220); AudioEng.bossBoom(); }
     else if (ev.k === 'bossRage') { this.hapticAll(0.8, 500); AudioEng.bossRoar(1); }
@@ -5165,7 +5232,7 @@ const Input = {
     else if (ev.k === 'shield') { this.hapticAll(0.4, 40); this.vib([15, 40, 15, 40, 15]); }
     else if (ev.k === 'scene') { this.hapticAll(0.35, 220); this.vib(60); }
     else if (ev.k === 'shoot') { this.haptic(ev.side ? 'right' : 'left', 0.4, 22); this.vib(8); }
-    else if (ev.k === 'saber') { this.haptic(ev.side, ev.good ? 0.85 : 0.55, ev.good ? 55 : 40); this.vib(ev.good ? 24 : 14); AudioEng.crunch(Game.weapon === 'fists'); }
+    else if (ev.k === 'saber') { this.haptic(ev.side, ev.good ? 0.85 : 0.55, ev.good ? 55 : 40); this.vib(ev.good ? 24 : 14); AudioEng.at = this.hands[ev.side] ? this.hands[ev.side].o : null; AudioEng.crunch(Game.weapon === 'fists'); AudioEng.at = null; }
     else if (ev.k === 'saberWrong') { this.haptic(ev.side, 1, 90); this.vib(40); AudioEng.clang(); }
     else if (ev.k === 'saberMine') { this.hapticAll(1, 160); this.vib([40, 30, 60]); }
   }
@@ -5208,9 +5275,28 @@ const SETTING_ROWS = [
   { k: 'trip', label: 'Trippy visuals', bool: true }
 ];
 
+const MR_ROWS = [
+  { k: 'mrWorld', label: 'Virtual world strength', min: 0, max: 1, step: 0.05, fmt: v => Math.round(v * 100) + '%' },
+  { k: 'mrStyle', label: 'Camera look', opts: ['clear', 'neon', 'crt'], names: ['Clear', 'Neon tint', 'Retro CRT'] },
+  { k: 'mrDim', label: 'Room darkening', min: 0, max: 0.9, step: 0.05, fmt: v => Math.round(v * 100) + '%' },
+  { k: 'mrBright', label: 'Effect brightness', min: 0.5, max: 1.5, step: 0.1, fmt: v => Math.round(v * 100) + '%' },
+  { k: 'mrPulse', label: 'Room pulses to beat', bool: true },
+  { k: 'mrWall', label: 'Walls light up', opts: ['off', 'rings', 'grid'], names: ['Off', 'Rings', 'Rings + grid'] },
+  { k: 'mrEdge', label: 'Glow room edges', bool: true },
+  { k: 'mrOcc', label: 'Real objects hide game', bool: true },
+  { k: 'mrHand', label: 'Hand glow', bool: true },
+  { k: 'mrOrb', label: 'Floating shapes', bool: true },
+  { k: 'mrSafe', label: 'Play-area ring', bool: true },
+  { k: 'mrCalm', label: 'Calm motion (MR)', bool: true },
+  { k: 'cSeated', label: 'Seated play', bool: true },
+  { k: 'mrSpatial', label: 'Spatial hit sounds', bool: true },
+  { k: 'mrGhost', label: 'Best-run ghost ship', bool: true },
+  { k: 'mrFlip', label: 'Flip depth image', bool: true }
+];
+
 const UI = {
   canvas: null, g: null, screen: 'home', back: 'home', hover: null, dirty: true, W: [], toastMsg: '', toastT: 0,
-  scrollTop: 0, sTop: 0, kbOpen: false, confirmRemove: -1, xr: false, xrOK: false, lastDraw: 0, onAct: null, spin: 0,
+  scrollTop: 0, sTop: 0, kbOpen: false, confirmRemove: -1, xr: false, xrOK: false, arOK: false, lastDraw: 0, onAct: null, spin: 0,
 
   init(canvas) { this.canvas = canvas; canvas.width = UW; canvas.height = UH; this.g = canvas.getContext('2d'); },
   font(sz, wt) { return (wt || 600) + ' ' + sz + 'px ' + FONT; },
@@ -5253,6 +5339,15 @@ const UI = {
       case 'sview': S.view = parts[1]; saveSettings(); break;
       case 'sback': this.set('home'); break;
       case 'comfort': this.set('comfort'); break;
+      case 'mrs': this.set('mr'); break;
+      case 'mrback': this.set('settings'); break;
+      case 'mrplace': MR.beginPlace(); break;
+      case 'mrclear': MR.clearPlace(); break;
+      case 'mrq': MR.toggleQuick(); break;
+      case 'calib': Calib.start(); break;
+      case 'cal_apply': Calib.apply(); break;
+      case 'cal_back': Calib.stop(); this.set('settings'); break;
+      case 'share': Share.go(); break;
       case 'cback': this.set('settings'); break;
       case 'cset': S[parts[1]] = !S[parts[1]]; saveSettings(); if (parts[1] === 'cMotion' || parts[1] === 'cFlash' || parts[1] === 'cSteady') UI.toast('Applies right away'); break;
       case 'gen': BS.genre = BS.genres[+parts[1]][1]; this.kbOpen = false; BS.run(false); break;
@@ -5288,7 +5383,7 @@ const UI = {
     }
   },
   adjust(k, dir) {
-    const row = SETTING_ROWS.find(r => r.k === k), S = Settings; if (!row) return;
+    const row = SETTING_ROWS.concat(MR_ROWS).find(r => r.k === k), S = Settings; if (!row) return;
     if (row.bool) S[k] = !S[k];
     else if (row.opts) { const i = row.opts.indexOf(S[k]); S[k] = row.opts[(Math.max(0, i) + dir + row.opts.length) % row.opts.length]; }
     else S[k] = clamp(Math.round((S[k] + dir * row.step) / row.step) * row.step, row.min, row.max), S[k] = Math.round(S[k] * 1000) / 1000;
@@ -5321,7 +5416,7 @@ const UI = {
   },
   draw() {
     const g = this.g; g.clearRect(0, 0, UW, UH); this.W.length = 0; g.textBaseline = 'alphabetic';
-    switch (this.screen) { case 'home': this.home(); break; case 'settings': this.settings(); break; case 'pause': this.pause(); break; case 'results': this.results(); break; case 'loading': this.loading(); break; case 'search': this.search(); break; case 'setup': this.setup(); break; case 'comfort': this.comfort(); break; }
+    switch (this.screen) { case 'home': this.home(); break; case 'settings': this.settings(); break; case 'pause': this.pause(); break; case 'results': this.results(); break; case 'loading': this.loading(); break; case 'search': this.search(); break; case 'setup': this.setup(); break; case 'comfort': this.comfort(); break; case 'mr': this.mrScreen(); break; case 'calib': Calib.draw(this); break; }
     if (this.toastT > 0 && this.toastMsg) {
       g.font = this.font(24, 600); const w = Math.min(900, g.measureText(this.toastMsg).width + 56);
       this.rr((UW - w) / 2, UH - 82, w, 52, 26); g.fillStyle = 'rgba(0,0,0,0.88)'; g.fill(); g.lineWidth = 2; g.strokeStyle = C.cy; g.stroke();
@@ -5343,6 +5438,7 @@ const UI = {
     this.button('settings', 836, 26, 162, 50, 'Settings', { size: 22 });
     { const si = Profile.skinIdx(); this.button('veh', 330, 26, 134, 50, VEHICLES[clamp(S.vehicle | 0, 0, 3)].n, { size: 18 }); this.button('skin', 470, 26, 130, 50, SKINS[si].n, { size: 18 }); this.text('CRAFT', 336, 21, this.font(12, 700), C.dim); this.text('PAINT · LV ' + Profile.level, 476, 21, this.font(12, 700), C.dim); this.rr(334, 80, 262, 6, 3); g.fillStyle = 'rgba(255,255,255,0.12)'; g.fill(); this.rr(334, 80, Math.max(6, 262 * Profile.frac()), 6, 3); g.fillStyle = C.cy; g.fill(); }
     if (this.xr) this.button('recenter', 656, 26, 170, 50, 'Recenter', { size: 22 });
+    else if (this.xrOK && this.arOK) { this.button('vr', 616, 26, 100, 50, 'ENTER VR', { primary: true, size: 17, weight: 800 }); this.button('ar', 722, 26, 104, 50, 'MIXED', { size: 20, weight: 800 }); this.text('PASSTHROUGH', 726, 21, this.font(12, 700), C.dim); }
     else if (this.xrOK) this.button('vr', 616, 26, 210, 50, 'ENTER VR', { primary: true, size: 24, weight: 800 });
     // song list
     const rows = 5, rh = 70, x0 = 30, y0 = 122;
@@ -5483,20 +5579,43 @@ const UI = {
       this.text(v, bx + 44 + (218 - 94) / 2, y + 26, this.font(21, 800), row.bool ? (S[row.k] ? C.ok : C.dim) : C.cy, 'center');
     });
     this.text('Hits feel early? Raise the audio offset.  Wired headphones = lowest latency.', 36, 566, this.font(16, 500), C.dim);
-    this.button('comfort', 150, 574, 330, 50, 'Comfort options', { size: 24 });
-    this.button('back', 544, 574, 330, 50, 'Done', { primary: true, size: 26, weight: 800 });
+    this.button('comfort', 34, 574, 236, 50, 'Comfort', { size: 22 }); this.button('mrs', 278, 574, 236, 50, 'Passthrough', { size: 22 }); this.button('calib', 522, 574, 236, 50, 'Calibrate audio', { size: 22 });
+    this.button('back', 766, 574, 224, 50, 'Done', { primary: true, size: 26, weight: 800 });
+  },
+
+  rowsBlock(list, half, y0, cw, rh, step) {
+    const g = this.g, S = Settings;
+    list.forEach((row, i) => {
+      const col = i < half ? 0 : 1, r = i % half, x = 34 + col * (cw + 20), y = y0 + r * step;
+      this.rr(x, y, cw, rh, 14); g.fillStyle = 'rgba(255,255,255,0.05)'; g.fill();
+      this.text(this.fit(row.label, 260, this.font(21, 600)), x + 18, y + 26, this.font(21, 600), C.tx);
+      let v; if (row.bool) v = S[row.k] ? 'On' : 'Off'; else if (row.opts) v = row.names[Math.max(0, row.opts.indexOf(S[row.k]))]; else v = row.fmt(S[row.k]);
+      const bx = x + cw - 218;
+      this.button('set:' + row.k + ':-1', bx, y + 3, 44, rh - 6, '◀', { size: 17, r: 10 }); this.button('set:' + row.k + ':1', x + cw - 50, y + 3, 44, rh - 6, '▶', { size: 17, r: 10 });
+      this.text(v, bx + 44 + (218 - 94) / 2, y + 26, this.font(21, 800), row.bool ? (S[row.k] ? C.ok : C.dim) : C.cy, 'center');
+    });
+  },
+  mrScreen() {
+    const g = this.g; this.panelBG(4, 4, UW - 8, UH - 8); this.title('Passthrough & extras', MR.on ? (MR.feat.depth ? 'Room depth is on' : 'Room depth not available here') : 'Applies in a MIXED session');
+    this.rowsBlock(MR_ROWS, 8, 112, 470, 34, 40);
+    this.button('mrplace', 34, 446, 300, 50, MR.place ? 'Move the track' : 'Place the track', { size: 22, dis: !MR.on });
+    this.button('mrclear', 344, 446, 220, 50, 'Reset track', { size: 22, dis: !MR.place });
+    this.button('mrq', 574, 446, 416, 50, MR.on ? 'World now:  ' + (MR.quick ? 'FULL VR' : 'PASSTHROUGH') + '  (tap)' : 'Quick switch (in a session)', { size: 21, dis: !MR.on });
+    this.text('Camera look tints / scans the passthrough (hides Quest 2 grain).  Walls, edges and hiding need room depth.', 36, 520, this.font(16, 500), C.dim); this.text('Both thumbsticks together: passthrough <> full VR.   Hands only: pinch both hands to pause.   Flip depth image if edges look upside-down.', 36, 542, this.font(16, 500), C.dim);
+    this.button('mrback', 330, 560, 364, 56, 'Done', { primary: true, size: 26, weight: 800 });
   },
 
   pause() {
-    const x = 282, w = 460, y = 20, h = this.xr ? 600 : 568; this.panelBG(x, y, w, h);
+    const mrOn = this.xr && MR.on, x = 282, w = 460, y = 20, h = this.xr ? 600 : 568; this.panelBG(x, y, w, h);
     this.text('PAUSED', UW / 2, y + 66, this.font(42, 800), C.tx, 'center');
-    let by = y + 84; const bh = this.xr ? 46 : 50, gap = this.xr ? 7 : 8;
+    let by = y + (mrOn ? 76 : 84); const bh = mrOn ? 38 : this.xr ? 46 : 50, gap = mrOn ? 5 : this.xr ? 7 : 8;
     this.button('resume', x + 40, by, w - 80, bh + 10, '▶  Resume', { primary: true, size: 28, weight: 800 }); by += bh + 10 + gap;
     this.button('restart', x + 40, by, w - 80, bh, '↻  Restart', { size: 25 }); by += bh + gap;
     this.button('gems', x + 40, by, w - 80, bh, 'Gem sound:  ' + (Settings.collectSound ? 'ON' : 'OFF'), { size: 25, sel: !Settings.collectSound }); by += bh + gap;
     this.button('hud', x + 40, by, w - 80, bh, 'Info:  ' + ({ full: 'FULL', min: 'MINIMAL', off: 'OFF' }[Settings.hud] || 'FULL'), { size: 25 }); by += bh + gap;
     this.button('view', x + 40, by, w - 80, bh, 'View:  ' + (Settings.view === 'cockpit' ? 'COCKPIT' : 'CHASE'), { size: 25 }); by += bh + gap;
     this.button('settings', x + 40, by, w - 80, bh, 'Settings', { size: 25 }); by += bh + gap;
+    if (mrOn) { this.button('mrq', x + 40, by, w - 80, bh, 'World:  ' + (MR.quick ? 'FULL VR' : 'PASSTHROUGH'), { size: 24, sel: MR.quick }); by += bh + gap; this.button('mrplace', x + 40, by, w - 80, bh, MR.place ? 'Move the track' : 'Place the track', { size: 24 }); by += bh + gap; }
     if (this.xr) { this.button('recenter', x + 40, by, w - 80, bh, 'Recenter view', { size: 25 }); by += bh + gap; }
     if (this.xr) { this.button('exitvr', x + 40, by, w - 80, bh, '⏏  Exit VR', { size: 25 }); by += bh + gap; }
     this.button('quit', x + 40, by, w - 80, bh, 'Quit to menu', { size: 25 });
@@ -5513,12 +5632,13 @@ const UI = {
       this.button('retry', 140, 500, 340, 70, '↻  Again', { primary: true, size: 28, weight: 800 }); this.button('menu', 544, 500, 340, 70, 'Song menu', { size: 28 }); return;
     }
     const gc = GRADE_COL[r.grade] || C.tx;
-    this.text(Game.failed ? (Game.saber ? 'ENERGY DEPLETED' : 'SHIELDS DOWN') : Game.journey ? 'JOURNEY COMPLETE' : Queue.run ? 'SET COMPLETE' : 'TRACK COMPLETE', UW / 2, 74, this.font(34, 800), Game.failed ? C.red : C.cy, 'center');
+    if (!this.xr) this.button('share', 872, 24, 130, 46, '⇪ Share', { size: 21 });
+    this.text(Game.failed ? (Game.saber ? 'ENERGY DEPLETED' : 'THE SHOW IS OVER') : Game.journey ? 'JOURNEY COMPLETE' : Queue.run ? 'SET COMPLETE' : 'TRACK COMPLETE', UW / 2, 74, this.font(34, 800), Game.failed ? C.red : C.cy, 'center');
     this.text(this.fit(Queue.run ? Queue.items().map(x => x.name).join('  ·  ') : (Game.track ? Game.track.name || '' : ''), 800, this.font(22, 500)), UW / 2, 108, this.font(22, 500), C.dim, 'center');
     g.save(); g.shadowColor = gc; g.shadowBlur = 40; this.text(r.grade, 230, 372, this.font(250, 900), gc, 'center'); g.restore();
     this.text(r.score.toLocaleString(), 640, 220, this.font(66, 800), C.tx, 'center'); this.text('SCORE', 640, 150, this.font(20, 700), C.dim, 'center');
     if (Game.newBest) this.text('★ NEW BEST ★', 640, 262, this.font(30, 800), C.gd, 'center');
-    const st = [['Accuracy', Math.round(r.acc * 100) + '%'], ['Max combo', r.maxCombo], ['Notes hit', r.hits + ' / ' + (r.hits + r.misses)], ['Perfect', r.perfects], ...(Game.saber ? [['Bad cuts', r.struck], ['Missed', r.misses], ['Rank', r.grade]] : [['Shields left', r.shields + ' / 3'], ['Streaks', r.streaks + ' / ' + r.holdsTotal], ['Corners taken', r.cornersOK + ' / ' + r.cornersAll], ['Walls cleared', r.wallsClean + ' / ' + r.walls]])];
+    const st = [['Accuracy', Math.round(r.acc * 100) + '%'], ['Max combo', r.maxCombo], ['Notes hit', r.hits + ' / ' + (r.hits + r.misses)], ['Perfect', r.perfects], ...(Game.saber ? [['Bad cuts', r.struck], ['Missed', r.misses], ['Rank', r.grade]] : [['Meter at the end', Math.round(Game.energy) + '%'], ['Streaks', r.streaks + ' / ' + r.holdsTotal], ['Corners taken', r.cornersOK + ' / ' + r.cornersAll], ['Walls cleared', r.wallsClean + ' / ' + r.walls]])];
     { const mc = r.maxCombo | 0, tn = mc >= 100 ? 4 : mc >= 50 ? 3 : mc >= 25 ? 2 : mc >= 10 ? 1 : 0; if (tn) st[1] = ['Max combo', mc + '  ·  ' + STREAK_NAMES[tn]]; }
     if (Game.phrases && Game.phrases.length) st[3] = ['Star phrases', (Game.phraseGot | 0) + ' / ' + Game.phrases.length];
     if (Game.drive && Game.bossTotal) st[6] = ['Bosses beaten', (Game.bossKills | 0) + ' / ' + Game.bossTotal];
@@ -5547,13 +5667,27 @@ const HUD = {
     const sf = G.sceneFlash > 0 && G.songT > 0 ? Math.min(1, G.sceneFlash) : 0, sName = SCENES[G.sceneIdx] ? SCENES[G.sceneIdx].name : '';
     const cd = G.songT < 0 ? Math.ceil(-G.songT) : 0, ready = G.od >= 0.5 && !G.odActive, tm = Math.max(0, Math.floor(G.songT));
     const nc = G.nextCorner, ncK = nc ? (nc.dir > 0 ? 'R' : 'L') + Math.ceil(nc.dt * 3) : '', btK = G.bt > 0.5 ? 1 : 0, rw = G.rollWarn, rwT = rw ? Math.max(0, rw.t0 - G.songT) : 0, rwK = rw ? Math.ceil(rwT * 4) : '';
-    const key = [G.journey ? 'J' : G.score, G.hits + G.misses, G.mult, G.combo, G.odActive ? 1 : 0, Math.round(G.od * 40), cd, tm, G.shields, ready ? Math.floor(now / 280) % 2 : 0, UI.xr ? 1 : 0, Settings.control, G.state, sf > 0 ? sName + Math.ceil(sf * 5) : '', G.holding ? 1 : 0, ncK, btK, G.inv > 0 ? 1 : 0, Settings.hud, G.hellT > 0 ? 1 + Math.floor(now / 140) % 2 : 0, G.stk | 0, G.boss ? G.boss.st + Math.ceil(G.boss.hp / G.boss.hpMax * 40) : 0, Math.ceil((G.phrasePop || 0) * 8), G.odActive ? Math.floor(now / 200) % 2 : 0, Math.ceil((G.tierPop || 0) * 8), rwK].join('|');
+    const key = [G.journey ? 'J' : G.score, G.hits + G.misses, G.mult, G.combo, G.odActive ? 1 : 0, Math.round(G.od * 40), cd, tm, G.shields, ready ? Math.floor(now / 280) % 2 : 0, UI.xr ? 1 : 0, Settings.control, G.state, sf > 0 ? sName + Math.ceil(sf * 5) : '', G.holding ? 1 : 0, ncK, btK, G.inv > 0 ? 1 : 0, Settings.hud, G.hellT > 0 ? 1 + Math.floor(now / 140) % 2 : 0, G.stk | 0, G.boss ? G.boss.st + Math.ceil(G.boss.hp / G.boss.hpMax * 40) : 0, Math.ceil((G.phrasePop || 0) * 8), G.odActive ? Math.floor(now / 200) % 2 : 0, Math.ceil((G.tierPop || 0) * 8), rwK, Math.round(G.energy / 2), (rw || (G.energy < 25 && !G.journey)) ? Math.floor(now / 160) % 2 : 0, Math.cos(G.roll || 0) < 0.15 ? 1 : 0].join('|');
     if (key === this.key) return false; this.key = key;
     g.clearRect(0, 0, 768, 256); g.textBaseline = 'alphabetic';
     const bossBar = () => {
       const B = G.boss; if (!B || B.st === 'in' && B.k < 0.3) return; const T0 = (t, x, y, f, c, a) => { g.font = f; g.fillStyle = c; g.textAlign = a || 'left'; g.fillText(t, x, y); };
       T0(B.st === 'dead' ? B.name + '  -  DEFEATED' : B.st === 'leave' ? B.name + '  -  ESCAPES' : B.name, 384, 24, UI.font(20, 900), B.st === 'dead' ? '#9dffb0' : '#ff7a5c', 'center');
       UI.rr.call({ g }, 184, 32, 400, 14, 7); g.fillStyle = 'rgba(255,255,255,0.14)'; g.fill(); const f = clamp(B.hp / B.hpMax, 0, 1); if (f > 0) { UI.rr.call({ g }, 184, 32, Math.max(14, 400 * f), 14, 7); g.fillStyle = B.flash > 0.4 ? '#ffffff' : f < 0.3 ? '#ff3a1a' : '#ff8a3c'; g.fill(); }
+    };
+    const meter = (x, y, w, h, right) => {                                      // the rock meter: red, yellow and green zones; hits fill it, misses and crashes drain it, empty ends the show
+      const e = clamp(G.energy / 100, 0, 1), segs = 22, gap = 3, sw = (w - (segs - 1) * gap) / segs, low = e < 0.25, fl = Math.floor(now / 160) % 2;
+      g.save(); for (let i = 0; i < segs; i++) { const f = (i + 0.5) / segs, lit = f <= e, col = f < 0.3 ? '#ff4a5a' : f < 0.62 ? '#ffd23c' : '#3dff8a'; g.globalAlpha = lit ? (low && fl ? 0.45 : 1) : 0.14; g.fillStyle = lit ? col : '#ffffff'; UI.rr.call({ g }, x + i * (sw + gap), y, sw, h, 3); g.fill(); } g.restore();
+      const nx = x + e * w; g.beginPath(); g.moveTo(nx, y - 3); g.lineTo(nx - 7, y - 13); g.lineTo(nx + 7, y - 13); g.closePath(); g.fillStyle = e < 0.3 ? '#ff4a5a' : e < 0.62 ? '#ffd23c' : '#3dff8a'; g.fill();
+      if (low && Settings.deaths && Settings.rules !== 'relaxed') { g.font = UI.font(15, 900); g.fillStyle = fl ? '#ff4a5a' : '#ffd0d0'; g.textAlign = right ? 'right' : 'center'; g.fillText('DANGER', right ? x + w : x + w / 2, y + h + 17); }
+      else if (!Settings.deaths || Settings.rules === 'relaxed') { g.font = UI.font(13, 700); g.fillStyle = 'rgba(255,255,255,0.45)'; g.textAlign = right ? 'right' : 'center'; g.fillText('NO FAIL', right ? x + w : x + w / 2, y + h + 15); }
+    };
+    const flipBig = (cx, cy, big) => {                                   // a clear countdown before the world flips: a big number, an arrow that turns the way the world will, and what it does to your steering
+      if (!G.rollWarn || cd > 0) return false; const turn = G.rollWarn.turn, n = Math.max(1, Math.ceil(rwT)), fl = Math.floor(now / 140) % 2, col = fl ? '#ff5cf0' : '#19e3ff', s = big ? 1 : 0.62;
+      g.save(); g.translate(cx, cy); g.fillStyle = 'rgba(8,4,28,0.82)'; UI.rr.call({ g }, -250 * s, -54 * s, 500 * s, 108 * s, 28 * s); g.fill(); g.lineWidth = 4 * s; g.strokeStyle = col; g.stroke();
+      g.font = UI.font(Math.round(24 * s), 900); g.fillStyle = '#fff'; g.textAlign = 'center'; g.fillText(turn ? 'BARREL ROLL' : 'WORLD FLIPS', 28 * s, -14 * s); g.font = UI.font(Math.round(18 * s), 700); g.fillStyle = col; g.fillText(turn ? 'hold your line, it spins' : 'upside down: left and right swap', 28 * s, 16 * s);
+      g.font = UI.font(Math.round(54 * s), 900); g.fillStyle = col; g.fillText(String(n), -185 * s, 18 * s); g.font = UI.font(Math.round(42 * s), 900); g.fillStyle = '#fff'; g.fillText(turn ? '⟳' : '⟲', 205 * s, 12 * s);
+      g.restore(); return true;
     };
     const banner = () => { bossBar(); const dy = G.boss && G.boss.st !== 'dead' ? 38 : 0;                                               // streak tiers and the depths
       const T0 = (t, x, y, f, c, a) => { g.font = f; g.fillStyle = c; g.textAlign = a || 'left'; g.fillText(t, x, y); };
@@ -5568,10 +5702,11 @@ const HUD = {
         const tip = G.saber ? (G.weapon === 'fists' ? 'Punch the orbs in your colour  -  avoid the spikes' : 'Red sword left, blue right  -  slice the cubes  -  avoid the spikes') + (TOUCH && !UI.xr ? '  -  swipe' : '') : G.journey ? '' : G.drive ? (UI.xr ? 'Trigger to shoot  -  stick to steer  -  shoot the spikes' : TOUCH ? (Settings.touch === 'lanes' ? 'Touch where you want to go  -  slide to steer  -  hold FIRE to shoot' : Settings.touch === 'tap' ? 'Tap left / right to steer  -  hold FIRE to shoot' : 'Drag to steer  -  tap to shoot') : 'Move to steer  -  click to shoot  -  Z / X also fire') : (UI.xr ? '' : TOUCH ? (Settings.touch === 'lanes' ? 'Touch where you want to go  -  slide along streaks' : Settings.touch === 'tap' ? 'Tap left / right  -  hold to glide' : 'Drag to steer') : 'Arrow keys / mouse to steer');
         if (tip) T0(tip, 384, 196, UI.font(24, 700), C.dim, 'center'); }
       else if (nc) T0((nc.dir > 0 ? 'TURN RIGHT  ▶▶' : '◀◀  TURN LEFT'), 384, 130, UI.font(40, 900), Math.floor(now / 160) % 2 ? C.gd : '#ff8a3c', 'center');
-      else if (G.rollWarn) T0((G.rollWarn.turn ? '⟳  BARREL ROLL' : '⟲  FLIP  -  STEERING MIRRORS') + '  ' + Math.ceil(rwT) + '  ' + (G.rollWarn.turn ? '⟳' : '⟲'), 384, 130, UI.font(26, 900), Math.floor(now / 160) % 2 ? '#ff5cf0' : C.cy, 'center');
+      else if (G.rollWarn) flipBig(384, 126, true);
+      else if (Math.cos(G.roll || 0) < 0.15 && cd <= 0) T0('⟲  UPSIDE DOWN  -  LEFT / RIGHT SWAPPED', 384, 130, UI.font(26, 900), '#ff5cf0', 'center');
       else if (btK) T0('◆  BREAKTHROUGH  ◆', 384, 130, UI.font(34, 900), C.gd, 'center');
       if (!G.journey && cd <= 0 && !(R.fp && !G.saber)) { const acc = G.hits + G.misses > 0 ? Math.round(100 * G.hits / (G.hits + G.misses)) : 100; T0((G.stk > 0 && !(G.hellT > 0) ? '★ ' + STREAK_NAMES[G.stk] + '   ' : '') + G.score.toLocaleString() + '  ·  ' + acc + '%', 384, 252, UI.font(20, 700), 'rgba(235,240,255,0.78)', 'center'); }
-      if (!G.journey) for (let i = 0; i < G.shieldMax; i++) T0('◆', 384 + (i - 1) * 46 + 16, 220, UI.font(40, 900), i < G.shields ? (G.inv > 0 ? '#ffffff' : C.cy) : 'rgba(255,255,255,0.16)', 'right');
+      if (!G.journey) meter(214, 206, 340, 18);
       banner(); return true;
     }
     UI.rr.call({ g }, 0, 0, 768, 256, 38); g.fillStyle = 'rgba(6,4,22,0.62)'; g.fill();
@@ -5594,18 +5729,19 @@ const HUD = {
     }
     else { T('SCORE', 384, 44, UI.font(19, 700), C.dim, 'center'); T(G.score.toLocaleString(), 384, 112, UI.font(66, 900), C.tx, 'center'); }
     if (nc && cd <= 0) { const fl = Math.floor(now / 160) % 2; T((nc.dir > 0 ? 'TURN RIGHT  ▶▶' : '◀◀  TURN LEFT') + '  ·  ' + Math.max(0, nc.dt).toFixed(1) + 's', 384, 172, UI.font(24, 900), fl ? C.gd : '#ff8a3c', 'center'); }
-    else if (rw && cd <= 0) { T((rw.turn ? '⟳  BARREL ROLL  ' : '⟲  FLIP  -  STEERING MIRRORS  ') + Math.ceil(rwT), 384, 172, UI.font(22, 900), Math.floor(now / 160) % 2 ? '#ff5cf0' : C.cy, 'center'); }
+    else if (rw && cd <= 0) { flipBig(384, 172, false); }
+    else if (Math.cos(G.roll || 0) < 0.15 && cd <= 0) { T('⟲  UPSIDE DOWN: SWAPPED', 384, 172, UI.font(22, 900), '#ff5cf0', 'center'); }
     else if (sf > 0) { g.globalAlpha = sf; T('◆  ' + sName + '  ◆', 384, 170, UI.font(22, 800), mc === C.tx ? C.cy : mc, 'center'); g.globalAlpha = 1; }
     else if (btK) T('◆  BREAKTHROUGH  ◆', 384, 170, UI.font(24, 900), C.gd, 'center');
     else if (G.holding) T('◆  STREAK  ◆', 384, 170, UI.font(22, 800), C.gd, 'center');
     banner();
     T('TIME', 728, 44, UI.font(19, 700), C.dim, 'right'); T(fmtTime(Math.max(0, G.songT)), 728, 100, UI.font(46, 800), C.tx, 'right'); T('/ ' + fmtTime(dur), 728, 128, UI.font(22, 600), C.dim, 'right');
-    for (let i = 0; i < G.shieldMax; i++) { T('◆', 728 - (G.shieldMax - 1 - i) * 34, 168, UI.font(34, 900), i < G.shields ? (G.inv > 0 ? '#ffffff' : C.cy) : 'rgba(255,255,255,0.16)', 'right'); }
+    meter(468, 197, 260, 16, true);
     // overdrive bar
-    const by = 192, bh = 28; UI.rr.call({ g }, bx, by, bw, bh, 14); g.fillStyle = 'rgba(255,255,255,0.1)'; g.fill();
-    if (G.od > 0.01) { UI.rr.call({ g }, bx, by, Math.max(bh, bw * G.od), bh, 14); g.fillStyle = G.odActive ? C.gd : ready ? (Math.floor(now / 280) % 2 ? C.gd : '#fff2b0') : C.cy; g.fill(); }
+    const obw = 410, by = 192, bh = 28; UI.rr.call({ g }, bx, by, obw, bh, 14); g.fillStyle = 'rgba(255,255,255,0.1)'; g.fill();
+    if (G.od > 0.01) { UI.rr.call({ g }, bx, by, Math.max(bh, obw * G.od), bh, 14); g.fillStyle = G.odActive ? C.gd : ready ? (Math.floor(now / 280) % 2 ? C.gd : '#fff2b0') : C.cy; g.fill(); }
     const cap = G.odActive ? 'STAR POWER' : ready ? (UI.xr ? 'STAR POWER READY  -  GRIP / A' : TOUCH ? 'STAR POWER READY  -  TAP OD' : 'STAR POWER READY  -  SPACE / CLICK') : 'STAR POWER';
-    T(cap, bx + bw / 2, by + 21, UI.font(18, 800), G.od > 0.5 || G.odActive ? '#150a00' : C.dim, 'center');
+    T(cap, bx + obw / 2, by + 21, UI.font(18, 800), G.od > 0.5 || G.odActive ? '#150a00' : C.dim, 'center');
     UI.rr.call({ g }, bx, 234, bw, 6, 3); g.fillStyle = 'rgba(255,255,255,0.1)'; g.fill(); UI.rr.call({ g }, bx, 234, Math.max(6, bw * clamp(G.songT / dur, 0, 1)), 6, 3); g.fillStyle = 'rgba(255,255,255,0.55)'; g.fill();
     return true;
   }
@@ -5669,6 +5805,365 @@ const VRUI = {
   }
 };
 
+// ===== EXTRAS: audio calibration (tap to the click) and the shareable result card =====
+const Calib = {
+  active: false, phase: 'idle', N: 16, WARM: 4, IV: 0.5, clicks: [], errs: [], res: null,
+  start() {
+    this.active = true; this.phase = 'wait'; this.errs = []; this.res = null; this.clicks = [];
+    UI.set('calib'); AudioEng.init();
+    AudioEng.resumeCtx().then(() => this.go()).catch(() => { this.phase = 'fail'; UI.dirty = true; });
+    if (!this._bound) {
+      this._bound = true;
+      const f = (e) => { if (this.active) this.tap(e && e.timeStamp); };
+      addEventListener('pointerdown', (e) => { if (UI.screen === 'calib' && this.phase === 'run') f(e); });
+      addEventListener('keydown', (e) => { if (UI.screen === 'calib' && this.phase === 'run' && (e.code === 'Space' || e.code === 'Enter') && !e.repeat) { f(e); e.preventDefault(); } });
+      this._xr = f;
+    }
+    if (typeof XR !== 'undefined' && XR.session && XR.session !== this._sess) { this._sess = XR.session; XR.session.addEventListener('selectstart', (e) => { if (UI.screen === 'calib' && this.phase === 'run') this._xr(e); }); }
+  },
+  go() {
+    const c = AudioEng.ctx; if (!c) { this.phase = 'fail'; return; }
+    const t0 = c.currentTime + 1.4; this.clicks = [];
+    for (let i = 0; i < this.N + this.WARM; i++) { const t = t0 + i * this.IV; this.clicks.push(t); AudioEng._tone(i % 4 === 0 ? 1500 : 1000, 0.05, 'square', 0.35, t); }
+    this.phase = 'run'; UI.dirty = true;
+  },
+  ctxAt(perf) { const c = AudioEng.ctx, ts = c.getOutputTimestamp ? c.getOutputTimestamp() : null; if (ts && ts.contextTime > 0 && ts.performanceTime > 0) return ts.contextTime + (perf - ts.performanceTime) / 1000; return c.currentTime - (c.outputLatency || c.baseLatency || 0) + (perf - performance.now()) / 1000; },
+  tap(stamp) {
+    if (!AudioEng.ctx || this.phase !== 'run') return;
+    const ct = this.ctxAt(stamp > 0 && stamp < performance.now() + 5 ? stamp : performance.now());
+    let bi = -1, bd = 9; this.clicks.forEach((t, i) => { const d = Math.abs(ct - t); if (d < bd) { bd = d; bi = i; } });
+    if (bi < 0 || bd > 0.26 || bi < this.WARM) return;
+    if (this.done && this.done.has(bi)) return; (this.done || (this.done = new Set())).add(bi);
+    this.errs.push(ct - this.clicks[bi]); UI.dirty = true;
+    if (this.errs.length >= this.N - 2 || bi === this.clicks.length - 1) this.finish();
+  },
+  finish() {
+    const e = this.errs.slice().sort((a, b) => a - b); if (e.length < 6) { this.phase = 'few'; return; }
+    const lo = Math.floor(e.length * 0.2), hi = Math.ceil(e.length * 0.8), core = e.slice(lo, hi), mean = core.reduce((a, b) => a + b, 0) / core.length;
+    this.res = { late: mean * 1000, off: clamp(Math.round(-mean * 1000 / 5) * 5, -200, 200), n: e.length }; this.phase = 'done'; UI.dirty = true;
+  },
+  apply() { if (!this.res) return; Settings.offsetMs = this.res.off; saveSettings(); UI.toast('Audio offset set to ' + (this.res.off > 0 ? '+' : '') + this.res.off + ' ms'); this.phase = 'applied'; UI.dirty = true; },
+  stop() { this.active = false; this.phase = 'idle'; this.done = null; },
+  update() {                                                             // redraw every frame while the test screen is up so the beat circle moves
+    if (UI.screen !== 'calib') { if (this.active) this.stop(); return; }
+    this.active = true; if (this.phase === 'run' && AudioEng.ctx && this.clicks.length && AudioEng.ctx.currentTime > this.clicks[this.clicks.length - 1] + 0.6 && this.errs.length) this.finish();
+    else if (this.phase === 'run' && AudioEng.ctx && this.clicks.length && AudioEng.ctx.currentTime > this.clicks[this.clicks.length - 1] + 0.6) this.phase = 'few';
+    UI.dirty = true;
+  },
+  draw(u) {
+    const g = u.g; u.panelBG(4, 4, UW - 8, UH - 8); u.title('Audio calibration', 'Tap exactly on each click: screen, trigger or Space');
+    const c = AudioEng.ctx; let k = 0, near = 9;
+    if (c && this.clicks.length) { const now = this.ctxAt(performance.now()); this.clicks.forEach((t, i) => { const d = now - t; if (d >= -0.02 && d < 0.35) { k = Math.max(k, 1 - d / 0.35); near = i; } }); }
+    g.save(); g.translate(UW / 2, 290); g.beginPath(); g.arc(0, 0, 60 + 40 * k, 0, 6.2832); g.fillStyle = 'rgba(25,227,255,' + (0.12 + 0.55 * k).toFixed(2) + ')'; g.fill(); g.lineWidth = 6; g.strokeStyle = C.cy; g.stroke(); g.restore();
+    const ph = this.phase;
+    if (ph === 'wait' || ph === 'run') { u.text(ph === 'wait' ? 'Get ready…' : this.errs.length + ' / ' + (this.N - 2) + ' taps', UW / 2, 430, u.font(34, 800), C.tx, 'center'); u.text('Warm-up clicks first, then keep tapping with the beat', UW / 2, 468, u.font(20, 500), C.dim, 'center'); }
+    else if (ph === 'done' || ph === 'applied') {
+      const r = this.res; u.text('You tap ' + Math.abs(Math.round(r.late)) + ' ms ' + (r.late > 0 ? 'late' : 'early'), UW / 2, 430, u.font(36, 800), C.tx, 'center');
+      u.text('Suggested audio offset: ' + (r.off > 0 ? '+' : '') + r.off + ' ms   (now ' + (Settings.offsetMs > 0 ? '+' : '') + Settings.offsetMs + ' ms)', UW / 2, 470, u.font(24, 600), C.cy, 'center');
+      u.button('cal_apply', 150, 520, 330, 62, ph === 'applied' ? 'Applied ✓' : 'Apply', { primary: ph !== 'applied', size: 26, weight: 800, dis: ph === 'applied' }); u.button('calib', 544, 520, 330, 62, 'Test again', { size: 24 });
+    } else { u.text(ph === 'few' ? 'Not enough taps heard: try again' : 'Audio is not ready: tap to start it, then try again', UW / 2, 440, u.font(28, 700), C.red, 'center'); u.button('calib', 344, 500, 336, 60, 'Try again', { primary: true, size: 24 }); }
+    u.button('cal_back', 20, 560, 160, 50, '‹ Back', { size: 22 });
+  }
+};
+
+const Share = {
+  go() {
+    const r = Game.result; if (!r) return;
+    const W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
+    const bg = g.createLinearGradient(0, 0, W, H); bg.addColorStop(0, '#0a0524'); bg.addColorStop(0.55, '#1b0b4a'); bg.addColorStop(1, '#05222f'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    for (let i = 0; i < 90; i++) { const x = (Math.sin(i * 12.9898) * 43758.5453 % 1 + 1) % 1 * W, y = (Math.sin(i * 78.233) * 12345.678 % 1 + 1) % 1 * H, a = 0.1 + 0.4 * ((Math.sin(i * 3.7) + 1) / 2); g.fillStyle = 'rgba(' + (i % 2 ? '25,227,255' : '255,63,208') + ',' + a.toFixed(2) + ')'; g.beginPath(); g.arc(x, y, 2 + (i % 4), 0, 6.2832); g.fill(); }
+    const F = (n, w) => w + ' ' + n + 'px ' + FONT, T = (t, x, y, f, c, al) => { g.font = f; g.fillStyle = c; g.textAlign = al || 'center'; g.textBaseline = 'alphabetic'; g.fillText(t, x, y); }, gc = GRADE_COL[r.grade] || '#fff';
+    const gr = g.createLinearGradient(300, 0, 780, 0); gr.addColorStop(0, '#19e3ff'); gr.addColorStop(1, '#ff3fd0'); T('DMT SURF', W / 2, 150, F(96, 900), gr);
+    let name = Game.track ? Game.track.name || '' : ''; g.font = F(46, 700); while (name.length > 3 && g.measureText(name).width > W - 140) name = name.slice(0, -1); T(name, W / 2, 232, F(46, 700), '#eef3ff');
+    g.save(); g.shadowColor = gc; g.shadowBlur = 80; T(r.grade, W / 2, 700, F(480, 900), gc); g.restore();
+    T(r.score.toLocaleString(), W / 2, 850, F(130, 800), '#ffffff'); T('SCORE', W / 2, 760, F(34, 700), '#98a1cc');
+    const st = [['ACCURACY', Math.round(r.acc * 100) + '%'], ['MAX COMBO', String(r.maxCombo)], ['MODE', ((DIFFICULTIES[Game.diff] || {}).name || '') + (Game.journey ? ' · Journey' : Game.saber ? ' · Sabers' : Game.drive ? ' · Drive-by' : '')]];
+    st.forEach((s, i) => { const x = 200 + i * 340; T(s[0], x, 960, F(28, 700), '#98a1cc'); T(s[1], x, 1020, F(52, 800), '#eef3ff'); });
+    if (Game.newBest) T('★  NEW BEST  ★', W / 2, 1110, F(60, 800), '#ffd34d');
+    T('A music racer that runs in your browser: Quest, phone or PC', W / 2, 1220, F(34, 600), '#c9d2ff'); T((location.origin + location.pathname).replace(/index\.html$/, '').replace(/^https?:\/\//, ''), W / 2, 1275, F(36, 800), '#19e3ff');
+    cv.toBlob((b) => {
+      if (!b) { UI.toast('Could not make the card'); return; }
+      const f = new File([b], 'dmt-surf-score.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [f] }) && navigator.share) navigator.share({ files: [f], title: 'DMT Surf', text: r.grade + ' · ' + r.score.toLocaleString() + ' on ' + name }).catch(() => {});
+      else { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'dmt-surf-score.png'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); UI.toast('Score card saved'); }
+    }, 'image/png');
+  }
+};
+
+// ===== MIXED REALITY: passthrough on Quest 3 (and 2) =====
+// The game runs in an immersive-ar session. The sky, floor and fog become see-through veils (shader work lives in 07_render.js), and this module adds the room layer:
+// beat-reactive room dimming and light, real depth (hides the game behind furniture and hands, glows room edges, projects rings and grids onto real walls),
+// a placed track start, a play-area ring, hand glow, floating shapes, room shatter and confetti, and a one-button return to the full-VR look.
+// Everything that needs a headset feature (depth, hit-test, hands) is optional and fails quietly, so a plain session still gets the core passthrough look.
+const MR_RING = 14, MR_ORB = 56, MR_SHARD = 110;
+const MR = {
+  on: false, session: null, arOK: false, feat: {}, vis: 1, visT: 1, quick: false, placing: null, place: null, hit: { left: null, right: null }, hts: {}, depthErr: 0, dv: [null, null], ready: false,
+  ringAge: 9, kickPrev: 0, orbT: 0, drift: 0, fake: false, depthFmt: 0, depthKind: '',
+
+  init(renderer, scene, camera) {
+    this.renderer = renderer; this.scene = scene; this.camera = camera; this.gl = renderer.getContext();
+    const U = R.U, V = (x, y, z) => new THREE.Vector3(x, y, z);
+    // ---- the room layer: one full-screen quad drawn first, per eye. It carries the dimming, the beat light, the edge glow and the wall projection, and writes the real room's depth ----
+    const vs = 'varying vec2 vUv; void main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+    const fs = `precision highp float; precision highp sampler2D;
+      #ifdef DEPTH_ARRAY
+      uniform highp sampler2DArray uDepth;
+      #else
+      uniform highp sampler2D uDepth;
+      #endif
+      uniform float uLayer, uRaw, uHasD, uFmt, uFlip, uOcc, uDim, uEdge, uWall, uWash, uKickAge, uTime, uBeat, uBright, uBias, uStyle, uTint;
+      uniform mat4 uNDBFNV, uInvProj, uCamWorld, uProj; uniform vec2 uTexel; uniform vec3 uA1, uA2, uHead;
+      varying vec2 vUv;
+      float rawD(vec2 uv) {
+        vec2 nv = vec2(uv.x, mix(uv.y, 1.0 - uv.y, uFlip)); vec2 tc = (uNDBFNV * vec4(nv, 0.0, 1.0)).xy;
+        #ifdef DEPTH_ARRAY
+        vec4 s = texture(uDepth, vec3(tc, uLayer));
+        #else
+        vec4 s = texture(uDepth, tc);
+        #endif
+        return (uFmt < 0.5 ? s.r : (s.r + 256.0 * s.a) * 255.0) * uRaw;
+      }
+      void main() {
+        float d = uHasD > 0.5 ? rawD(vUv) : 0.0; bool ok = d > 0.05 && d < 9.0; vec3 L = vec3(0.0);
+        if (ok && uEdge > 0.5) {
+          vec2 e = uTexel * 1.5; float g = abs(rawD(vUv + vec2(e.x, 0.0)) - rawD(vUv - vec2(e.x, 0.0))) + abs(rawD(vUv + vec2(0.0, e.y)) - rawD(vUv - vec2(0.0, e.y)));
+          float k = smoothstep(0.12, 0.4, g / max(d, 0.6)); L += mix(uA1, uA2, 0.5 + 0.5 * sin(uTime * 0.7)) * k * (0.35 + 0.6 * uBeat);
+        }
+        if (ok && uWall > 0.5) {
+          vec4 vp = uInvProj * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 vpos = vp.xyz / vp.w; vpos *= d / max(0.01, -vpos.z);
+          vec3 wp = (uCamWorld * vec4(vpos, 1.0)).xyz; float r = length(wp - uHead);
+          float ring = exp(-pow((r - uKickAge * 6.5) * 2.4, 2.0)) * exp(-uKickAge * 1.3);
+          L += mix(uA1, uA2, clamp(r * 0.12, 0.0, 1.0)) * ring * 0.9;
+          if (uWall > 1.5) { vec3 q = abs(fract(wp * 1.25 + 0.5) - 0.5); float ln = 1.0 - smoothstep(0.0, 0.035, min(min(q.x, q.y), q.z)); L += uA2 * ln * (0.06 + 0.22 * uBeat + 0.35 * ring); }
+        }
+        L += mix(uA1, uA2, 0.5) * uWash * (ok ? 0.4 : 1.0);
+        float dimA = uDim;
+        if (uStyle > 0.5) {                                              // a grainy grey camera feed becomes a deliberate look: neon-tinted, or scanned like an old monitor
+          vec2 fc = gl_FragCoord.xy; float sl = 0.5 + 0.5 * sin(fc.y * 1.7 + uTime * 2.0);
+          float lumaV = 0.5 + 0.5 * sin(uTime * 0.35 + vUv.y * 2.2);
+          vec3 tintC = mix(uA1, uA2, lumaV);
+          L += tintC * uTint * (0.07 + 0.16 * uBeat) * (0.65 + 0.35 * sl);
+          float rr = length(vUv - 0.5); float sw = exp(-pow((rr - uKickAge * 0.8) * 6.5, 2.0)) * exp(-uKickAge * 1.6);          // a shockwave rolls out across your view on every kick (works with no depth data at all)
+          L += mix(uA1, uA2, clamp(rr * 1.6, 0.0, 1.0)) * sw * (uHasD > 0.5 ? 0.14 : 0.42);
+          if (uStyle > 1.5) { dimA = clamp(dimA + 0.2 * sl + 0.06 * fract(sin(dot(floor(fc * 0.5), vec2(12.9898, 78.233)) + uTime) * 43758.5453), 0.0, 0.95); L += tintC * 0.05 * (1.0 - sl); }
+          else dimA = clamp(dimA + 0.12, 0.0, 0.95);
+        }
+        L *= uBright;
+        gl_FragColor = vec4(L, dimA);
+        float zd = d + uBias; float ndc = (uProj[2][2] * -zd + uProj[3][2]) / zd;
+        gl_FragDepth = (uOcc > 0.5 && ok) ? clamp(ndc * 0.5 + 0.5, 0.0, 1.0) : 1.0;
+      }`;
+    this.bgU = {
+      uDepth: { value: null }, uLayer: { value: 0 }, uRaw: { value: 0.001 }, uHasD: { value: 0 }, uFmt: { value: 0 }, uFlip: { value: 1 }, uOcc: { value: 0 }, uDim: { value: 0 }, uEdge: { value: 0 }, uWall: { value: 0 }, uWash: { value: 0 },
+      uKickAge: { value: 9 }, uStyle: { value: 0 }, uTint: { value: 1 }, uTime: U.uTime, uBeat: U.uBeat, uBright: U.uMRb, uBias: { value: 0.13 }, uNDBFNV: { value: new THREE.Matrix4() }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uProj: { value: new THREE.Matrix4() },
+      uTexel: { value: new THREE.Vector2(0.01, 0.01) }, uA1: U.uA1, uA2: U.uA2, uHead: { value: new THREE.Vector3() }
+    };
+    this.bgVS = vs; this.bgFS = fs;
+    this.makeBG(false);
+    // ---- additive point sprites: hand glow, floating shapes, room shards ----
+    const pvs = 'attribute float aSz; attribute vec3 aCol; varying vec3 vC; uniform float uScale; void main() { vC = aCol; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = aSz * uScale / max(0.25, -mv.z); }';
+    const pfs = 'precision highp float; varying vec3 vC; uniform float uMRb; void main() { float a = smoothstep(0.5, 0.0, length(gl_PointCoord - 0.5)); a *= a; gl_FragColor = vec4(vC * a * uMRb, 1.0); }';
+    const mk = (n) => {
+      const g = new THREE.BufferGeometry(), pos = new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage), col = new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage), sz = new THREE.BufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage);
+      g.setAttribute('position', pos); g.setAttribute('aCol', col); g.setAttribute('aSz', sz);
+      const m = new THREE.Points(g, new THREE.ShaderMaterial({ uniforms: { uScale: U.uScale, uMRb: U.uMRb }, vertexShader: pvs, fragmentShader: pfs, transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor }));
+      m.frustumCulled = false; m.visible = false; m.renderOrder = 5; scene.add(m); return { m, pos, col, sz, n };
+    };
+    this.glowP = mk(MR_RING * 2); this.orbP = mk(MR_ORB); this.shardP = mk(MR_SHARD);
+    this.trail = { left: [], right: [] }; this.orbs = []; for (let i = 0; i < MR_ORB; i++) this.orbs.push({ a: Math.random() * 6.283, r: 1.5 + Math.random() * 2.2, y: 0.3 + Math.random() * 2.0, s: 0.4 + Math.random() * 0.9, ph: Math.random() * 6.283, k: Math.random() });
+    this.shards = []; for (let i = 0; i < MR_SHARD; i++) this.shards.push({ life: 0, p: V(0, 0, 0), v: V(0, 0, 0), c: [1, 1, 1], s: 0.05 });
+    // ---- the play-area ring on the real floor, and the placement reticle ----
+    const rg = new THREE.RingGeometry(0.82, 1, 64).rotateX(-Math.PI / 2), cm = (c) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor });
+    this.safe = new THREE.Mesh(rg, cm(0x40ffd0)); this.safe.visible = false; this.safe.frustumCulled = false; this.safe.renderOrder = 4; scene.add(this.safe);
+    this.ret = new THREE.Mesh(new THREE.RingGeometry(0.1, 0.16, 40).rotateX(-Math.PI / 2), cm(0xffffff)); this.ret.material.opacity = 0.9; this.ret.visible = false; this.ret.frustumCulled = false; this.ret.renderOrder = 4; scene.add(this.ret);
+    this.ready = true; this.apply(true);
+  },
+
+  makeBG(arr) {                                                          // the quad's program differs for 2D and texture-array depth, so it is (re)built when the first depth frame shows which one this headset gives
+    if (this.bg) { this.scene.remove(this.bg); this.bg.material.dispose(); }
+    const mat = new THREE.ShaderMaterial({ uniforms: this.bgU, vertexShader: this.bgVS, fragmentShader: this.bgFS, defines: arr ? { DEPTH_ARRAY: 1 } : {}, depthTest: true, depthFunc: THREE.AlwaysDepth, depthWrite: true, blending: THREE.NoBlending, side: THREE.DoubleSide });
+    const m = this.bg = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); m.frustumCulled = false; m.renderOrder = -1000; m.visible = this.on || this.fake; this.scene.add(m);
+    m.onBeforeRender = (r, sc, cam) => {                                  // per eye: this eye's depth image, projection and view
+      const u = this.bgU, eye = (cam.viewport && cam.viewport.x > 1) ? 1 : 0, dv = this.dv[eye] || this.dv[0];
+      if (dv && this.depthTex) { u.uHasD.value = 1; u.uLayer.value = dv.layer; u.uRaw.value = dv.raw; u.uNDBFNV.value.fromArray(dv.m); u.uTexel.value.set(1 / dv.w, 1 / dv.h); } else u.uHasD.value = 0;
+      u.uProj.value.copy(cam.projectionMatrix); u.uInvProj.value.copy(cam.projectionMatrix).invert(); u.uCamWorld.value.copy(cam.matrixWorld); mat.uniformsNeedUpdate = true;
+    };
+    this.bgArr = !!arr;
+  },
+
+  // ---------- session ----------
+  supported() { return !!(navigator.xr && navigator.xr.isSessionSupported); },
+  probe() { if (!this.supported()) return; navigator.xr.isSessionSupported('immersive-ar').then((ok) => { this.arOK = !!ok; UI.arOK = !!ok; UI.dirty = true; if (ok && !Store.get('dmtsurf.mrHint')) { Store.set('dmtsurf.mrHint', '1'); setTimeout(() => { try { UI.toast('Passthrough is available here: try the MIXED button'); } catch (e) {} }, 4000); } }).catch(() => {}); },
+  sessionInit() {
+    const opt = ['local-floor', 'hand-tracking', 'hit-test', 'anchors', 'depth-sensing'];
+    return { requiredFeatures: ['local'], optionalFeatures: opt, depthSensing: { usagePreference: ['gpu-optimized', 'cpu-optimized'], dataFormatPreference: ['float32', 'luminance-alpha'] } };
+  },
+  start(session) {
+    this.session = session; const bm = session.environmentBlendMode; this.on = !!bm && bm !== 'opaque';
+    if (!this.on) { this.stop(); return; }
+    const en = session.enabledFeatures ? Array.from(session.enabledFeatures) : null, has = (f) => !en || en.indexOf(f) >= 0;
+    this.feat = { depth: has('depth-sensing') && typeof XRWebGLBinding !== 'undefined', hit: has('hit-test'), hand: has('hand-tracking') };
+    this.depthErr = 0; this.dv = [null, null]; this.depthTex = null; this.binding = null; this.hts = {}; this.hit = { left: null, right: null };
+    try { if (this.feat.depth) this.binding = new XRWebGLBinding(session, this.gl); } catch (e) { this.feat.depth = false; }
+    this.depthFmt = session.depthDataFormat === 'luminance-alpha' ? 1 : 0;
+    const sel = (e) => { if (this.placing) this.commitPlace(e.inputSource && e.inputSource.handedness); };
+    session.addEventListener('selectstart', sel);
+    this.quick = false; this.vis = Game.state === 'playing' ? Settings.mrWorld : 0.12; this.visT = this.vis; this.apply(true);
+    this.renderer.setClearColor(0x000000, 0);
+    if (Settings.mrCalm) this.calmOn();
+    UI.toast('Passthrough on  ·  clear some space around you' + (this.feat.depth ? '' : '  ·  room depth not available on this headset'));
+  },
+  stop() {
+    if (this.on || this.fake) { this.on = false; this.fake = false; }
+    this.session = null; this.binding = null; this.depthTex = null; this.placing = null; this.hts = {};
+    if (this.ready) { this.renderer.setClearColor(0x000000, 1); this.apply(true); }
+    this.calmOff();
+  },
+  calmOn() { if (window.__mrRestore) return; window.__mrRestore = { cSteady: Settings.cSteady, tilt: Settings.tilt }; Settings.cSteady = true; Settings.tilt = 'off'; },       // moving the world around a real room is rougher than moving it around an empty void: the horizon stays level
+  calmOff() { const r = window.__mrRestore; if (!r) return; window.__mrRestore = null; Settings.cSteady = r.cSteady; Settings.tilt = r.tilt; },
+  toggleQuick() { this.quick = !this.quick; UI.toast(this.quick ? 'Full VR view' : 'Passthrough view'); },
+
+  // ---------- placing the track ----------
+  beginPlace() {
+    if (!this.on) { UI.toast('Placing the track needs a passthrough session'); return; }
+    this.placing = { prev: UI.screen || 'home' }; UI.set(null); UI.toast(this.feat.hit ? 'Point at the floor (or a table) and pull the trigger' : 'This headset has no surface detection: the track stays where you stand');
+    if (!this.feat.hit) { this.placing = null; UI.set('home'); }
+  },
+  commitPlace(side) {
+    const h = (side && this.hit[side]) || this.hit.right || this.hit.left; if (!h) return;
+    const hd = Input.head, dx = h.x - hd.x, dz = h.z - hd.z, m = Math.hypot(dx, dz);
+    if (m < 0.8) { UI.toast('Too close: aim further away'); return; }
+    this.place = { x: h.x, y: h.y, z: h.z, yaw: Math.atan2(-dx / m, -dz / m) };
+    const back = this.placing.prev; this.placing = null; UI.set(back); XR.needRecenter = true; UI.toast('Track placed  ·  walk back and enjoy');
+  },
+  clearPlace() { this.place = null; XR.needRecenter = true; UI.toast('Track back to your position'); },
+
+  // ---------- effects ----------
+  burst(kind) {
+    if (!this.on || !this.ready) return; const hd = Input.head, A = R.curTheme, n = kind === 'confetti' ? 70 : 90;
+    const pal = kind === 'confetti' ? [[1, 0.3, 0.5], [1, 0.9, 0.3], [0.3, 1, 0.6], [0.4, 0.7, 1], [1, 0.5, 1]] : [[A.a1.x, A.a1.y, A.a1.z], [1, 1, 1], [A.a2.x, A.a2.y, A.a2.z]];
+    let k = 0; for (const s of this.shards) { if (s.life > 0) continue; if (k++ >= n) break;
+      const a = Math.random() * 6.283, el = (Math.random() - 0.3) * 1.3, sp = kind === 'confetti' ? 1.2 + Math.random() * 1.6 : 3.2 + Math.random() * 3.5, d = kind === 'confetti' ? 1.0 + Math.random() * 1.6 : 1.0 + Math.random() * 0.6;
+      s.p.set(hd.x + Math.cos(a) * d, hd.y + el * 0.6, hd.z + Math.sin(a) * d); s.v.set(Math.cos(a) * sp * (kind === 'confetti' ? 0.3 : 1), (kind === 'confetti' ? 1.6 + Math.random() * 1.4 : el * sp * 0.6), Math.sin(a) * sp * (kind === 'confetti' ? 0.3 : 1));
+      s.life = s.max = kind === 'confetti' ? 2.6 + Math.random() * 1.2 : 1.1 + Math.random() * 0.8; s.c = pal[(Math.random() * pal.length) | 0]; s.s = kind === 'confetti' ? 0.05 + Math.random() * 0.04 : 0.07 + Math.random() * 0.07; s.g = kind === 'confetti' ? -1.3 : -0.4; }
+  },
+  onGame(ev) {
+    if (!this.on) return;
+    if (ev.k === 'drop') this.burst('shatter'); else if (ev.k === 'phrase' || ev.k === 'power') this.burst('confetti');
+  },
+
+  // ---------- per frame ----------
+  apply(force) {                                                         // the neutral look outside passthrough
+    const U = R.U; if (!this.on && !this.fake) { U.uMR.value = 0; U.uMRs.value = 1; U.uMRb.value = 1; this.bg && (this.bg.visible = false); for (const p of [this.glowP, this.orbP, this.shardP]) p && (p.m.visible = false); this.safe && (this.safe.visible = false); this.ret && (this.ret.visible = false); }
+  },
+  frame(dt, frame, ref) {
+    if (!this.ready) return; const g = Game, S = Settings, U = R.U, B = this.bgU, playing = g.state === 'playing';
+    if (!this.on && !this.fake) { this.apply(); return; }
+    // world strength: a clear room in the menus, the full trip on drops and star power, and the quick toggle for a straight return to VR
+    let t = this.quick ? 1 : playing ? S.mrWorld : Math.min(S.mrWorld, 0.12);
+    if (!this.quick && playing) t = Math.min(1, t + 0.28 * (R.od || 0) + 0.3 * (R.dropE || 0));
+    this.vis += (t - this.vis) * Math.min(1, dt * 2.2);
+    const v = clamp(this.vis, 0, 1); U.uMR.value = v > 0.985 ? 0 : 1; U.uMRs.value = Math.pow(v, 1.35); U.uMRb.value = clamp(S.mrBright, 0.4, 1.6);
+    const kick = R.kick || 0; if (kick > 0.85 && this.kickPrev <= 0.85) this.ringAge = 0; this.kickPrev = kick; this.ringAge += dt;
+    const full = v > 0.985, pul = S.mrPulse && playing && !S.cFlash;
+    // ---- the room layer ----
+    this.bg.visible = !full || this.fake;
+    B.uDim.value = clamp(S.mrDim * clamp(0.3 + v * 1.2, 0, 1), 0, 0.92) * (full ? 0 : 1);
+    B.uWash.value = pul ? clamp(0.16 * kick + 0.05 * (g.intensity || 0), 0, 0.3) : 0;
+    B.uStyle.value = S.mrStyle === 'neon' ? 1 : S.mrStyle === 'crt' ? 2 : 0; B.uTint.value = 1;
+    B.uKickAge.value = this.ringAge; B.uFlip.value = S.mrFlip ? 0 : 1; B.uFmt.value = this.depthFmt; B.uHead.value.copy(Input.head);
+    const haveD = !!this.depthTex;
+    const lowQ = R.quality >= 2;                                         // when the headset is struggling, the depth effects thin out first
+    B.uEdge.value = (S.mrEdge && haveD && !lowQ) ? 1 : 0; B.uWall.value = (haveD && S.mrWall !== 'off') ? (S.mrWall === 'grid' && !lowQ ? 2 : 1) : 0;
+    B.uOcc.value = (S.mrOcc && haveD && v < 0.72) ? 1 : 0;
+    // ---- depth ----
+    if (frame && this.binding && this.feat.depth && this.depthErr < 4) this.readDepth(frame, ref);
+    // ---- hit-test for placing ----
+    if (frame && this.feat.hit) this.pollHit(frame);
+    this.ret.visible = !!this.placing && !!(this.hit.right || this.hit.left);
+    if (this.ret.visible) { const h = this.hit.right || this.hit.left; this.ret.position.set(h.x, h.y + 0.01, h.z); this.ret.scale.setScalar(1 + 0.15 * Math.sin(performance.now() * 0.008)); }
+    // ---- hands, shapes, shards, ring ----
+    this.hands(dt, v); this.orbit(dt, v, playing); this.shardStep(dt); this.safeRing(dt, playing);
+  },
+  readDepth(frame, ref) {
+    try {
+      const vp = frame.getViewerPose(ref); if (!vp) return; let any = false;
+      for (let i = 0; i < vp.views.length && i < 2; i++) {
+        const di = this.binding.getDepthInformation(vp.views[i]); if (!di) { this.dv[i] = null; continue; }
+        const arr = di.textureType === 'texture-array';
+        if (di.texture) {
+          if (!this.depthTex || this.depthRaw !== di.texture || this.bgArr !== arr) this.bindDepthTex(di.texture, arr, di.width, di.height);
+          any = true;
+        }
+        this.dv[i] = { layer: di.imageIndex || 0, raw: di.rawValueToMeters, m: di.normDepthBufferFromNormView.matrix, w: di.width, h: di.height };
+      }
+      if (!any) this.depthTex = null;
+    } catch (e) { this.depthErr++; this.depthTex = null; }
+  },
+  bindDepthTex(raw, arr, w, h) {                                         // hand the headset's own depth texture to three without letting three upload anything into it
+    const gl = this.gl, T = arr ? new THREE.DataTexture2DArray(null, w, h, 2) : new THREE.Texture();
+    T.version = 0; T.minFilter = T.magFilter = THREE.NearestFilter; T.generateMipmaps = false;
+    this.renderer.properties.get(T).__webglTexture = raw; this.depthTex = T; this.depthRaw = raw; this.bgU.uDepth.value = T;
+    try { const tg = arr ? gl.TEXTURE_2D_ARRAY : gl.TEXTURE_2D; gl.bindTexture(tg, raw); gl.texParameteri(tg, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(tg, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.bindTexture(tg, null); this.renderer.state.reset(); } catch (e) {}
+    if (this.bgArr !== arr || !this.bg) this.makeBG(arr);
+    this.bg.material.needsUpdate = true;
+  },
+  pollHit(frame) {
+    const s = this.session; if (!s) return;
+    for (const src of s.inputSources) {
+      const side = src.handedness; if ((side !== 'left' && side !== 'right') || !src.targetRaySpace) continue;
+      const rec = this.hts[side];
+      if (!rec || rec.src !== src) { this.hts[side] = { src, hs: null, busy: true }; try { s.requestHitTestSource({ space: src.targetRaySpace }).then((hs) => { if (this.hts[side] && this.hts[side].src === src) { this.hts[side].hs = hs; this.hts[side].busy = false; } }).catch(() => { this.feat.hit = false; }); } catch (e) { this.feat.hit = false; } continue; }
+      if (!rec.hs) continue;
+      try { const res = frame.getHitTestResults(rec.hs); if (res.length) { const p = res[0].getPose(this.renderer.xr.getReferenceSpace()); if (p) { this.hit[side] = { x: p.transform.position.x, y: p.transform.position.y, z: p.transform.position.z }; continue; } } this.hit[side] = null; } catch (e) { this.hit[side] = null; }
+    }
+  },
+  hands(dt, v) {
+    const P = this.glowP, on = Settings.mrHand && this.on; P.m.visible = on; if (!on) return;
+    const A = R.curTheme, sides = ['left', 'right']; let k = 0;
+    for (let si = 0; si < 2; si++) {
+      const side = sides[si], h = Input.hands[side], tr = this.trail[side];
+      if (h) { tr.unshift({ x: h.o.x + h.d.x * 0.06, y: h.o.y + h.d.y * 0.06, z: h.o.z + h.d.z * 0.06 }); if (tr.length > MR_RING) tr.pop(); } else if (tr.length) tr.pop();
+      const base = si ? A.a1 : A.a2, pulse = 0.6 + 0.8 * (R.kick || 0);
+      for (let i = 0; i < MR_RING; i++) { const p = tr[i], o = k * 3; if (p) { const f = 1 - i / MR_RING; P.pos.array[o] = p.x; P.pos.array[o + 1] = p.y; P.pos.array[o + 2] = p.z; P.col.array[o] = base.x * f * 0.9; P.col.array[o + 1] = base.y * f * 0.9; P.col.array[o + 2] = base.z * f * 0.9; P.sz.array[k] = (0.075 * f + 0.012) * pulse; } else { P.sz.array[k] = 0; } k++; }
+    }
+    P.pos.needsUpdate = P.col.needsUpdate = P.sz.needsUpdate = true;
+  },
+  orbit(dt, v, playing) {
+    const P = this.orbP, on = Settings.mrOrb && this.on && (playing || Game.state === 'menu') && v < 0.98; P.m.visible = on; if (!on) return;
+    this.orbT += dt; const A = R.curTheme, hd = Input.head, kk = R.kick || 0, w = R.world, cx = hd.x, cz = hd.z;
+    for (let i = 0; i < MR_ORB; i++) {
+      const o = this.orbs[i], a = o.a + this.orbT * 0.18 * o.s * (i % 2 ? 1 : -1), r = o.r + 0.18 * Math.sin(this.orbT * 0.7 + o.ph) + 0.25 * kk, y = o.y + 0.12 * Math.sin(this.orbT * 0.9 + o.ph), j = i * 3, c = o.k > 0.5 ? A.a1 : A.a2;
+      P.pos.array[j] = cx + Math.cos(a) * r; P.pos.array[j + 1] = y + (w ? w.position.y : 0); P.pos.array[j + 2] = cz + Math.sin(a) * r;
+      const br = (0.35 + 0.65 * kk) * (playing ? 1 : 0.5); P.col.array[j] = c.x * br; P.col.array[j + 1] = c.y * br; P.col.array[j + 2] = c.z * br; P.sz.array[i] = (0.045 + 0.05 * o.s) * (1 + 0.8 * kk);
+    }
+    P.pos.needsUpdate = P.col.needsUpdate = P.sz.needsUpdate = true;
+  },
+  shardStep(dt) {
+    const P = this.shardP; let live = 0;
+    for (let i = 0; i < MR_SHARD; i++) {
+      const s = this.shards[i], o = i * 3; if (s.life <= 0) { P.sz.array[i] = 0; continue; }
+      s.life -= dt; live++; s.v.y += (s.g || -0.6) * dt; s.v.multiplyScalar(1 - 0.5 * dt); s.p.addScaledVector(s.v, dt);
+      const f = clamp(s.life / s.max, 0, 1);
+      P.pos.array[o] = s.p.x; P.pos.array[o + 1] = s.p.y; P.pos.array[o + 2] = s.p.z; P.col.array[o] = s.c[0] * f; P.col.array[o + 1] = s.c[1] * f; P.col.array[o + 2] = s.c[2] * f; P.sz.array[i] = s.s * (0.5 + 0.5 * f);
+    }
+    P.m.visible = live > 0 && this.on; if (live) P.pos.needsUpdate = P.col.needsUpdate = P.sz.needsUpdate = true;
+  },
+  safeRing(dt, playing) {
+    const w = R.world, hd = Input.head, S = this.safe; if (!Settings.mrSafe || !this.on || !playing || !w) { S.visible = false; return; }
+    const d = Math.hypot(hd.x - w.position.x, hd.z - w.position.z); this.drift += (d - this.drift) * Math.min(1, dt * 6);
+    const a = clamp((this.drift - 0.45) / 0.55, 0, 1); S.visible = a > 0.02; if (!S.visible) return;
+    S.position.set(w.position.x, w.position.y + 0.012, w.position.z); S.scale.setScalar(1.0); S.material.opacity = 0.75 * a; S.material.color.setHex(a > 0.8 ? 0xff5060 : 0x40ffd0);
+  },
+  // hand-tracking only: both hands pinched together for a moment pauses (no menu button exists without controllers)
+  handsOnly() { const L = Input.hands.left, Rr = Input.hands.right; return !!(L && Rr && L.isHand && Rr.isHand); },
+  gestureTick(dt, playing) {
+    if (!playing || !this.on || !this.handsOnly()) { this.gT = 0; this.gFired = false; return false; }
+    if (Input.selDown.left && Input.selDown.right) { this.gT = (this.gT || 0) + dt; if (this.gT > 0.7 && !this.gFired) { this.gFired = true; return true; } } else { this.gT = 0; this.gFired = false; }
+    return false;
+  }
+};
+
 // ===== MAIN: renderer, XR session, recentre, performance governor, state sync, loop =====
 loadSettings();
 const $ = (id) => document.getElementById(id);
@@ -5683,14 +6178,15 @@ async function init() {
   window.__started = true;
   await bootP(0.02, 'Starting');
   glEl = $('gl'); uiEl = $('ui'); hudEl = $('hud'); fileEl = $('file');
-  renderer = new THREE.WebGLRenderer({ canvas: glEl, antialias: true, alpha: false, powerPreference: 'high-performance', stencil: false });
+  renderer = new THREE.WebGLRenderer({ canvas: glEl, antialias: true, alpha: true, powerPreference: 'high-performance', stencil: false });
   renderer.setPixelRatio(Gov.pr = Math.min(window.devicePixelRatio || 1, TOUCH ? 1.5 : 2)); renderer.setClearColor(0x000000, 1);
   renderer.xr.enabled = true; renderer.xr.setReferenceSpaceType('local-floor');
   scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(68, 1, 0.05, 230); scene.add(camera);
   await R.init(renderer, scene, camera, bootP);
+  MR.init(renderer, scene, camera);
   await bootP(0.95, 'Menus and audio');
   UI.init(uiEl); HUD.init(hudEl); VRUI.init(scene, R.world);
-  Game.onEvent = (ev) => Input.onGameEvent(ev);
+  Game.onEvent = (ev) => { Input.onGameEvent(ev); MR.onGame(ev); };
   Game.onChain = async () => {                                         // the song ended and the set goes on: straight into the next one, no menus
     const nx = Queue.upcoming(); if (!nx) { Game.finish(false); return; }
     Game.chaining = true;
@@ -5707,6 +6203,7 @@ async function init() {
   Library.init(); Library.loadSaved();
   AudioEng.applyVolumes(); applyQuality();
   if (navigator.xr && navigator.xr.isSessionSupported) navigator.xr.isSessionSupported('immersive-vr').then((ok) => { UI.xrOK = !!ok; UI.dirty = true; }).catch(() => {});
+  MR.probe();
 
   renderer.xr.addEventListener('sessionstart', onXRStart); renderer.xr.addEventListener('sessionend', onXREnd);
   addEventListener('resize', onResize); onResize();
@@ -5768,12 +6265,15 @@ function applyQuality() {
 function setFovea(v) { const bl = XR.session && XR.session.renderState && XR.session.renderState.baseLayer; if (bl && 'fixedFoveation' in bl) { try { bl.fixedFoveation = v; } catch (e) {} } }
 
 // ---------- XR session ----------
-async function enterVR() {
+async function enterVR(mode) {
   if (!navigator.xr) { UI.toast('WebXR is not available in this browser'); return; }
+  const ar = mode === 'ar';
   try {
     AudioEng.init(); AudioEng.resumeCtx();
     renderer.xr.setFramebufferScaleFactor(Settings.scale);
-    const s = await navigator.xr.requestSession('immersive-vr', { requiredFeatures: ['local'], optionalFeatures: ['local-floor'] });
+    const tries = ar ? [MR.sessionInit(), { requiredFeatures: ['local'], optionalFeatures: ['local-floor', 'hand-tracking', 'hit-test'] }, { requiredFeatures: ['local'], optionalFeatures: ['local-floor'] }] : [{ requiredFeatures: ['local'], optionalFeatures: ['local-floor', 'hand-tracking'] }, { requiredFeatures: ['local'], optionalFeatures: ['local-floor'] }];
+    let s = null, err = null; for (const init of tries) { try { s = await navigator.xr.requestSession(ar ? 'immersive-ar' : 'immersive-vr', init); break; } catch (e) { err = e; } }
+    if (!s) throw err || new Error('session refused');
     XR.refType = (s.enabledFeatures && !s.enabledFeatures.includes('local-floor')) ? 'local' : 'local-floor';
     renderer.xr.setReferenceSpaceType(XR.refType);
     await renderer.xr.setSession(s);
@@ -5781,13 +6281,13 @@ async function enterVR() {
 }
 function onXRStart() {
   const s = renderer.xr.getSession(); XR.session = s; XR.rateSet = false; XR.rate = 0; XR.needRecenter = true;
-  Input.startXR(s); UI.xr = true; UI.dirty = true; Gov.fovea = 0.5; applyQuality();
+  Input.startXR(s); UI.xr = true; UI.dirty = true; Gov.fovea = 0.5; applyQuality(); MR.start(s);
   s.addEventListener('visibilitychange', () => { if (s.visibilityState !== 'visible') doPause(); });
   const ref = renderer.xr.getReferenceSpace(); if (ref && ref.addEventListener) ref.addEventListener('reset', () => { XR.needRecenter = true; });
   if (Game.state === 'menu' && UI.screen !== 'home' && UI.screen !== 'settings') UI.set('home');
 }
 function onXREnd() {
-  XR.session = null; Input.stopXR(); UI.xr = false; UI.dirty = true;
+  XR.session = null; Input.stopXR(); MR.stop(); UI.xr = false; UI.dirty = true;
   R.world.position.set(0, 0, 0); R.world.rotation.y = 0; VRUI.setVisible(false); VRUI.cursor.visible = false;
   doPause(); onResize();
 }
@@ -5801,9 +6301,12 @@ function pickFrameRate(s) {
 function recenter() {
   if (!XR.session || !Input.headOK) return;
   const yaw = Input.headYaw(), w = R.world;
+  if (MR.on && MR.place) { w.position.set(MR.place.x, MR.place.y, MR.place.z); w.rotation.y = MR.place.yaw; R.hy0 = clamp(Input.head.y - MR.place.y, 0.7, 2.1); }          // a placed track starts where you pointed and runs away from you
+  else {
   w.position.set(Input.head.x, XR.refType === 'local' ? Input.head.y - 1.6 : 0, Input.head.z);
   if (yaw !== null) w.rotation.y = yaw;
   R.hy0 = clamp(Input.head.y - (XR.refType === 'local' ? Input.head.y - 1.6 : 0), 0.7, 2.1);
+  }
   Input.recenterLean(); placePanel(yaw !== null ? yaw : w.rotation.y);
 }
 function placePanel(yaw) { if (yaw === undefined) { const y = Input.headYaw(); yaw = y !== null ? y : R.world.rotation.y; } VRUI.place(Input.head, yaw); }
@@ -5830,7 +6333,8 @@ function handleAct(id) {
     case 'add': fileEl.click(); break;
     case 'explist': Library.exportList(); break;
     case 'implist': $('listfile').click(); break;
-    case 'vr': enterVR(); break;
+    case 'vr': enterVR('vr'); break;
+    case 'ar': enterVR('ar'); break;
     case 'exitvr': if (XR.session) { try { XR.session.end(); } catch (e) {} } break;
     case 'recenter': if (XR.session) { XR.needRecenter = true; UI.toast('View recentred'); } break;
     case 'resume': Game.resume(); UI.set(null); break;
@@ -5905,7 +6409,7 @@ function syncPresentation() {
   VRUI.setVisible(inXR && !!sc); VRUI.hud.visible = inXR && showHud;
   VRUI.reticle.visible = inXR && st === 'playing' && Settings.control === 'point' && !Game.drive;
   VRUI.placeLasers(inXR && (!!sc || (st === 'playing' && (Game.drive || (Settings.control !== 'lean' && Settings.control !== 'grip')))));
-  const vigOn = inXR && Settings.vignette; VRUI.vig.visible = vigOn && VRUI.vigU.uStr.value > 0.01;
+  const vigOn = inXR && Settings.vignette && !MR.on; VRUI.vig.visible = vigOn && VRUI.vigU.uStr.value > 0.01;
 }
 
 function updateFlatCamera(dt, t) {
@@ -5929,10 +6433,14 @@ function loop(time, frame) {
     if (Input.proj5 && bl) R.U.uScale.value = bl.framebufferHeight * Input.proj5 / 2;
     if (XR.needRecenter && Input.headOK) { XR.needRecenter = false; recenter(); }
   } else Input.updateFlat(dt);
+  if (inXR) { const L = Input.hands.left, Rr = Input.hands.right, both = !!(L && Rr && L.btn[3] && Rr.btn[3]); if (both && !XR.qPrev && MR.on) MR.toggleQuick(); XR.qPrev = both; if (MR.gestureTick(dt, Game.state === 'playing')) Input.push('pause'); }
   handleEvents(Input.consume());
   UI.pointer(Input.ptr);
+  Calib.update();
 
   AudioEng.update(dt);
+  if (inXR && Input.headOK) AudioEng.listen(Input.head, Input.headQ);
+  MR.frame(dt, inXR ? frame : null, inXR ? renderer.xr.getReferenceSpace() : null);
   if (Game.state === 'playing') { if (Game.journey) Game.autoSteer(dt); else Game.latTarget = Input.target; }
   Game.update(dt);
   if (Game.state !== lastState) {
