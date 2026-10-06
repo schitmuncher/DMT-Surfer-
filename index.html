@@ -1167,7 +1167,7 @@ const Game = {
     this.cornerIdx = 0; this.cornersOK = 0; this.cornersAll = 0; this.nextCorner = null; this.shields = this.shieldMax = 3; this.inv = 0; this.nextShieldAt = 28; this.bt = 0; this.yaw = 0; this.wallsClean = 0; this.hurts = 0;
     this.holds = this.notes.filter(n => n.type === NOTE_HOLD); this.holdIdx = 0; this.holding = false; this.streaks = this.drops = this.tickGot = this.tickAll = 0;
     this.heading = 0; this.cx = 0; this.cy = 0; this.secIdx = 0; this.sceneIdx = this.secScene[0]; this.sceneFlash = 3.2; this.turnDir = this.secTurn[0];
-    this.chaining = false; const lead = keep ? 1.6 : LEAD_IN; this.songT = -lead;
+    this.chaining = false; const pl0 = keep ? null : (typeof Party !== 'undefined' ? Party.leadFor() : null), lead = keep ? 1.6 : (pl0 != null ? pl0 : LEAD_IN); this.songT = -lead; this.wallStart = Date.now() + lead * 1000;
     if (keep) { for (const k of CARRY) this[k] = keep[k]; }
     AudioEng.applyVolumes();
     AudioEng.onEnded = () => { if (this.state !== 'playing') return; if (Queue.run && Queue.upcoming() && this.onChain && !this.failed) this.onChain(); else this.finish(false); };
@@ -3511,8 +3511,9 @@ const R = {
       const col = new THREE.Color(r.col); u.mat.color.copy(col); u.pm.color.copy(col); u.dm.color.copy(col); u.bm.color.copy(col); u.pan.visible = u.dv.visible = tracks; u.beam.visible = !tracks;
       const lead = clamp((r.t - songT) * speed, -9, 12), kk = (k >> 1) + 1, side = (k & 1) ? 1 : -1, txt = r.name + '|' + r.rank + '|' + r.col;
       if (u.txt !== txt) { u.txt = txt; const c = u.cv.getContext('2d'); c.clearRect(0, 0, 256, 64); c.fillStyle = 'rgba(8,4,28,0.72)'; c.beginPath(); c.roundRect ? c.roundRect(4, 8, 248, 48, 14) : c.rect(4, 8, 248, 48); c.fill(); c.lineWidth = 3; c.strokeStyle = r.col; c.stroke(); c.font = '800 28px system-ui'; c.textBaseline = 'middle'; c.fillStyle = r.col; c.textAlign = 'left'; c.fillText('#' + r.rank, 16, 33); c.fillStyle = '#fff'; c.fillText((r.name || 'Player').slice(0, 9), 70, 33); u.tex.needsUpdate = true; }
-      if (tracks) { const lw = LANE_W * 0.55; grp.position.set(side * (5.2 + 3.6 * (kk - 1)), 0, 0); u.tx = r.lat * lw; u.tz = SHIP_Z - clamp(lead * 0.3, -3.4, 4.2); u.ty = 0.3 + r.alt * HI_Y * 0.5; }
-      else { grp.position.set(0, 0, 0); u.tx = r.lat * LANE_W * rk0; u.tz = SHIP_Z - lead; u.ty = 0.55 + r.alt * HI_Y + 0.06 * Math.sin(now * 3 + k); }
+      // the road bends and rises ahead of you, so a rival `lead` metres ahead is placed ON the road at that distance (same maths the notes use), not at a flat offset from your ship
+      if (tracks) { const dg = clamp(lead * 0.3, -3.4, 4.2), lw = LANE_W * 0.55; this.pl(dg, side * (5.2 + 3.6 * (kk - 1)) * rk0, 0); grp.position.set(this.qx, this.evalS(this.shY, dg), this.qz + (SHIP_Z - SHIP_Z)); grp.rotation.y = -this.qt; u.tx = r.lat * lw; u.tz = 0; u.ty = 0.3 + r.alt * HI_Y * 0.5; u.u0 = 1; }
+      else { grp.position.set(0, 0, 0); grp.rotation.y = 0; this.pl(lead, r.lat * LANE_W * rk0, 1); u.tx = this.qx; u.tz = this.qz; u.ty = this.evalS(this.shY, lead) + this.qy + 0.55 + r.alt * HI_Y + 0.06 * Math.sin(now * 3 + k); }
       const e = Math.min(1, dt * 9); u.x += (u.tx - u.x) * e; u.y += (u.ty - u.y) * e; u.z += (u.tz - u.z) * e; u.ship.position.set(u.x, u.y, u.z); u.ship.rotation.z = clamp((u.tx - u.x) * -0.6, -0.6, 0.6); u.ship.scale.setScalar(tracks ? 1.5 : 3.0);
       u.tag.position.set(u.x, u.y + (tracks ? 0.75 : 1.15), u.z); u.beam.position.set(u.x, u.y / 2, u.z); u.beam.scale.set(1, Math.max(0.05, u.y), 1);
     }
@@ -7006,7 +7007,7 @@ Object.assign(UI, {
     // header buttons
     const hb = [];
     if (xr) hb.push(['recenter', 'Recenter', 150, {}]); else if (this.xrOK && this.arOK) { hb.push(['vr', 'ENTER VR', 132, { primary: true, weight: 800 }]); hb.push(['ar', 'MIXED', 100, { weight: 800 }]); } else if (this.xrOK) hb.push(['vr', 'ENTER VR', 170, { primary: true, weight: 800 }]);
-    if (!xr) hb.push(['spectate', Party.on() ? '● Party' : Spectate.st === 'live' ? '● Live' : '👥 Friends', P ? 0 : 150, {}]);
+    hb.push(['spectate', Party.on() ? '● Party' : Spectate.st === 'live' ? '● Live' : '👥 Friends', P ? 0 : 150, {}]);
     hb.push(['settings', 'Settings', P ? 0 : 140, {}]);
     if (!P) { let x = UW - 24; for (let i = hb.length - 1; i >= 0; i--) { const b = hb[i]; x -= b[2]; this.button(b[0], x, 24, b[2], 52, b[1], Object.assign({ size: 20 }, b[3])); x -= 10; } }
     else { this.button('settings', UW - 30 - 170, 28, 170, 62, 'Settings', { size: 26 }); const r2 = hb.filter(b => b[0] !== 'settings').map(b => [b[0], b[1], Object.assign({ size: 24 }, b[3])]); this.evenRow(r2, 24, 112, UW - 48, 60, 10); }
@@ -7477,7 +7478,7 @@ const MR = {
 // Topology: the host holds one WebRTC data channel to each guest and relays the table to all of them. An eight digit code is swapped through the same tiny public
 // relay as Spectate, only to set the connections up. The host approves every player, and every message from a peer is validated and clamped before it is used.
 const PARTY_MAX = 8, PARTY_COL = ['#19e3ff', '#ff4fd8', '#ffd23c', '#3dff8a', '#ff7a3c', '#a58bff', '#ffffff', '#6aa8ff'];
-const PARTY_MODES = ['play', 'saber', 'punch', 'drive', 'guitar'], AUDIO_MIME = ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/flac', 'audio/webm', 'audio/aac', 'application/ogg'];
+const PARTY_LEAD = 7, PARTY_MODES = ['play', 'saber', 'punch', 'drive', 'guitar'], AUDIO_MIME = ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/flac', 'audio/webm', 'audio/aac', 'application/ogg'];
 const PN = (v, lo, hi, d) => { v = +v; return isFinite(v) ? (v < lo ? lo : v > hi ? hi : v) : d; };
 const cleanName = (s, d) => { s = String(s == null ? '' : s).replace(/[^\p{L}\p{N} ._'\-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 14); return s || d || 'Player'; };
 const cleanStr = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f<>]/g, '').slice(0, n);
@@ -7496,7 +7497,7 @@ const Party = {
   ice: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }],
   prep: null, syncMsg: '', sync: null, xin: null, ask: '', role: null, st: 'idle', code: '', input: '', msg: '', gid: '', pid: 0, sess: 0, es: [], peers: new Map(), pc: null, dc: null,
   names: {}, tbl: {}, round: false, coop: false, drv: 0, hist: [], tx: 0, sendT: 0, miss: '', me: { fin: false }, ghostAt: {}, mk: null,
-  pending: [], blocked: new Set(), auto: false, locked: false, openUntil: 0, cfg: null, cfgSig: '', tab: 'room', myRank: 0,
+  off: null, offS: [], T0: null, pingT: 0, pending: [], blocked: new Set(), auto: false, locked: false, openUntil: 0, cfg: null, cfgSig: '', tab: 'room', myRank: 0,
   on() { return this.st === 'live' || this.round; },
   digits() { let s = ''; try { const a = new Uint32Array(8); crypto.getRandomValues(a); for (const v of a) s += v % 10; } catch (e) { for (let i = 0; i < 8; i++) s += (Math.random() * 10) | 0; } return s; },
   say(m, st) { this.msg = m; if (st) this.st = st; UI.dirty = true; },
@@ -7563,7 +7564,7 @@ const Party = {
       if (!this.validSdp(o, 'offer')) return; got = true; clearTimeout(to); try { es.close(); } catch (e) {}
       try {
         this.say('Let in: connecting…', 'connecting'); const pc = this.pc = new RTCPeerConnection({ iceServers: this.ice });
-        pc.ondatachannel = (e) => { const dc = this.dc = e.channel; dc.binaryType = 'arraybuffer'; dc.onopen = () => { if (id !== this.sess) return; this.st = 'live'; this.say('Connected: wait for the host to start a song', 'live'); this.send({ k: 'hi', n: this.myName() }); }; dc.onclose = () => { if (id === this.sess && this.st === 'live') { this.say('Disconnected from the room', 'closed'); this.round = false; } }; dc.onmessage = (ev) => { if (id === this.sess) this.guestRecv(ev.data); }; };
+        pc.ondatachannel = (e) => { const dc = this.dc = e.channel; dc.binaryType = 'arraybuffer'; dc.onopen = () => { if (id !== this.sess) return; this.st = 'live'; this.say('Connected: wait for the host to start a song', 'live'); this.send({ k: 'hi', n: this.myName() }); for (let i = 0; i < 5; i++) setTimeout(() => this.send({ k: 'pi', c: performance.now() }), i * 250); }; dc.onclose = () => { if (id === this.sess && this.st === 'live') { this.say('Disconnected from the room', 'closed'); this.round = false; } }; dc.onmessage = (ev) => { if (id === this.sess) this.guestRecv(ev.data); }; };
         pc.onconnectionstatechange = () => { if (id === this.sess && pc.connectionState === 'failed') this.say('Could not connect (a strict network or firewall?). Try again.', 'error'); };
         await pc.setRemoteDescription({ type: 'offer', sdp: o.sdp }); await pc.setLocalDescription(await pc.createAnswer()); await this.gathered(pc); if (id !== this.sess) return;
         await this.post('a', { g: this.gid, type: pc.localDescription.type, sdp: pc.localDescription.sdp });
@@ -7587,6 +7588,7 @@ const Party = {
     else if (m.k === 'pg') { if (st) { st.s = m.s === 'scan' ? 'scan' : 'recv'; st.pct = PN(m.pct, 0, 100, 0) | 0; UI.dirty = true; } }
     else if (m.k === 'rdy') { if (st) { this.prep.st[P.pid] = { s: 'ready', pct: 100 }; UI.dirty = true; this.prepCheck(); } }
     else if (m.k === 'fail') { if (st) { this.prep.st[P.pid] = { s: 'fail', pct: 0 }; UI.dirty = true; this.prepCheck(); } }
+    else if (m.k === 'pi') this.sendTo(P, { k: 'po', c: PN(m.c, 0, 1e12, 0), h: performance.now() });
     else if (m.k === 'hi') { P.name = cleanName(m.n, P.name); this.names[P.pid] = P.name; this.sendRoster(); }
     else if (m.k === 's') { const c = cleanState(m); c.at = performance.now(); c.i = P.pid; this.tbl[P.pid] = Object.assign(this.tbl[P.pid] || {}, c); if (this.coop && P.pid === this.drv && Game.gunner) this.feedCoop(c); }
     else if (m.k === 'rl') this.hostRelay(P, m);
@@ -7602,6 +7604,7 @@ const Party = {
     else if (m.k === 'rl') this.recvRelay(m.m, PN(m.f, 0, 7, 0) | 0);
     else if (m.k === 'tbl') { if (!Array.isArray(m.p)) return; for (const r0 of m.p.slice(0, PARTY_MAX)) { if (!r0 || typeof r0 !== 'object') continue; const i = PN(r0.i, 0, 7, -1) | 0; if (i < 0) continue; const r = cleanState(r0); r.i = i; if (this.coop && i === this.drv && Game.gunner) this.feedCoop(r); if (i === this.pid) continue; r.at = performance.now(); this.tbl[i] = Object.assign(this.tbl[i] || {}, r); } for (const k of Object.keys(this.tbl)) if (!(k in this.names)) delete this.tbl[k]; }
     else if (m.k === 'start') this.begin(m);
+    else if (m.k === 'po') { const now = performance.now(), c = PN(m.c, 0, 1e12, -1), h = PN(m.h, 0, 1e12, -1), rtt = now - c; if (c >= 0 && h >= 0 && rtt >= 0 && rtt < 4000) { this.offS.push({ rtt, off: h + rtt / 2 - now, at: now }); if (this.offS.length > 10) this.offS.shift(); const b = this.offS.reduce((a, x) => x.rtt < a.rtt ? x : a); this.off = b.off; this.rtt = b.rtt; } }
     else if (m.k === 'late') { UI.toast('A song is already playing: you join at the next one'); }
     else if (m.k === 'end') { this.round = false; }
     else if (m.k === 'lobby') { this.round = false; if (UI.screen === 'results' || UI.screen === 'rank') UI.set('party'); }
@@ -7628,7 +7631,8 @@ const Party = {
   go(it) {
     this.say(this.count() + ' in the room', 'live'); this.tbl = {}; this.miss = ''; this.round = true; this.me = { fin: false };
     const coop = !!Settings.partyCoop && Settings.mode === 'drive' && this.count() >= 2, drv = (Settings.partyDriver in this.names) ? Settings.partyDriver | 0 : 0;
-    this.bcast({ k: 'start', key: it.key, name: cleanStr(it.name, 80), diff: Settings.difficulty, mode: Settings.mode, flight: !!Settings.flight, rules: Settings.rules, coop, driver: drv });
+    this.T0 = performance.now() + PARTY_LEAD * 1000;
+    this.bcast({ k: 'start', at: this.T0, key: it.key, name: cleanStr(it.name, 80), diff: Settings.difficulty, mode: Settings.mode, flight: !!Settings.flight, rules: Settings.rules, coop, driver: drv });
     this.setRole(coop, drv); UI.set(null); startSelected();
   },
   setRole(coop, drv) { this.coop = !!coop; this.drv = drv | 0; this.hist = []; Spectate.last = null; const gun = this.coop && this.pid !== this.drv; Game.watch = gun; Game.gunner = gun; if (gun) Game.hostPaused = false; },
@@ -7638,8 +7642,10 @@ const Party = {
     if (idx < 0 || L.items[idx].status !== 'ready') { this.round = false; this.miss = nm || 'this song'; this.say('The host started "' + this.miss + '" and you do not have it yet. Ask the host for another round and it will be sent to you.', 'live'); this.send({ k: 'miss' }); UI.toast('Missing song: ' + this.miss); return; }
     Settings.mode = m.mode; Settings.difficulty = PN(m.diff, 0, 3, 1) | 0; Settings.flight = !!m.flight; if (m.rules === 'shield' || m.rules === 'relaxed') Settings.rules = m.rules; L.selected = idx; this.miss = ''; applyModeView();
     if (Game.state === 'playing' || Game.state === 'paused') { try { AudioEng.stop(); } catch (e) {} Game.state = 'menu'; }
+    this.T0 = this.off == null ? performance.now() + PARTY_LEAD * 1000 : PN(m.at, 0, 1e13, 0) - this.off; if (!(this.T0 > performance.now() - 500 && this.T0 < performance.now() + 20000)) this.T0 = performance.now() + PARTY_LEAD * 1000;
     this.setRole(!!m.coop && m.mode === 'drive', PN(m.driver, 0, 7, 0) | 0); startSelected(); UI.toast(this.coop ? (this.pid === this.drv ? 'Co-op: you DRIVE, the others shoot' : 'Co-op: you are the GUNNER, shoot for ' + (this.names[this.drv] || 'the driver')) : 'Party round: ' + (nm || 'song'));
   },
+  leadFor() { if (!this.round || this.T0 == null) return null; const l = (this.T0 - performance.now()) / 1000; this.T0 = null; return clamp(l, 0.4, 12); },   // seconds until the shared start moment: every device starts its song at the same wall-clock instant
   onStart() { if (this.round) { this.me = { fin: false }; this.tx = 0; this.mk = null; this.myRank = 0; if (this.coop) Game.coop = { role: this.pid === this.drv ? 'driver' : 'gunner' }; } },
   onEnd() {
     if (this.coop && Game.coop && Game.coop.role === 'driver') this.sendAll({ k: 'cend', failed: !!Game.failed, score: Game.score | 0 });
@@ -7659,6 +7665,7 @@ const Party = {
         const sg = JSON.stringify(this.cfgNow()); if (sg !== this.cfgSig) { this.cfgSig = sg; this.bcast({ k: 'cfg', c: this.cfgNow() }); UI.dirty = true; }
       }
     }
+    if (this.role === 'guest' && this.st === 'live') { this.pingT += dt; if (this.pingT > 3) { this.pingT = 0; this.send({ k: 'pi', c: performance.now() }); } }
     if (this.st !== 'live') return; const g = Game, playing = this.round && g.state === 'playing' && !g.watch && g.songT > -3;
     this.tx += dt; if (this.tx < 0.1) return; this.tx = 0;
     if (playing && (!this.coop || this.pid === this.drv)) { const s = this.me10(); if (this.role === 'host') this.tbl[0] = Object.assign(this.tbl[0] || { i: 0 }, s, { i: 0, f: 0 }); else this.send(s); }
