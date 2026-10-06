@@ -100,7 +100,7 @@ const DEFAULT_SETTINGS = {
   difficulty: 1, speed: 1, control: 'point', ctlv: 2, flight: true, hand: 'right', sens: 1,
   vignette: true, haptics: 'full', hitVol: 0.6, musicVol: 0.9, offsetMs: 0,
   mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: false, mrHand: false, mrV3: true, mrV4: true, mrTunnel: true, mrTunnelW: 1, mrDepth: false, mrFloorOff: 0, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: false, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
-  quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', tiltAssist: 1, stickDz: 0.25, stickAuto: true, partyView: 'ghost', partyCoop: false, partyDriver: 0, skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
+  quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', tiltAssist: 1, liveGain: 1, stickDz: 0.25, stickAuto: true, partyView: 'ghost', partyCoop: false, partyDriver: 0, skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
 };
 function applyModeView() {                       // each mode family remembers its own view; Drive-by defaults to the cockpit
   const g = Settings.mode === 'drive' ? 'D' : 'O'; if (g === Settings.vgrp) return;
@@ -728,6 +728,9 @@ const AudioEng = {
     this.source = src; src.start(this.startAt);
     this._have = false; this.t = -leadIn;
   },
+  playLive(leadIn) {                                                     // a live (microphone) run has no buffer: just a clock that starts after the lead-in
+    this.init(); this.stop(); this.buffer = null; this.ended = false; this.startAt = this.ctx.currentTime + leadIn + 0.08; this.source = { stop() {}, onended: null, live: true }; this._have = false; this.t = -leadIn;
+  },
   stop() {
     if (this._hold) { try { this._hold.g.gain.value = 0; } catch (e) {} }
     if (this.source) { this._stopping = true; try { this.source.onended = null; this.source.stop(); } catch (e) {} this._stopping = false; this.source = null; }
@@ -1171,11 +1174,11 @@ const Game = {
     if (keep) { for (const k of CARRY) this[k] = keep[k]; }
     AudioEng.applyVolumes();
     AudioEng.onEnded = () => { if (this.state !== 'playing') return; if (Queue.run && Queue.upcoming() && this.onChain && !this.failed) this.onChain(); else this.finish(false); };
-    AudioEng.play(track.buffer, lead);
+    if (track.live) AudioEng.playLive(lead); else AudioEng.play(track.buffer, lead);
     AudioEng.resumeCtx();
     this.state = 'playing';
   },
-  restart() { if (this.track) this.start(this.track, this.diff); },
+  restart() { if (this.track && this.track.live) { Live.begin(); return; } if (this.track) this.start(this.track, this.diff); },
   pause() { if (this.state !== 'playing') return; this.state = 'paused'; AudioEng.holdSet(false, 2); AudioEng.pause(); },
   resume() { if (this.state !== 'paused') return; this.state = 'playing'; AudioEng.resume(); },
   quit() { AudioEng.holdSet(false, 2); TrackShape.set(null, [], [], [], 20); AudioEng.stop(); AudioEng.resume(); this.state = 'menu'; this.track = null; this.a = null; this.notes = []; },
@@ -6184,7 +6187,7 @@ const MODE_LABEL = { play: '◆  Game  ·  collect, dodge, turn', saber: '⚔  S
 const MODE_HINT = { guitar: 'Hold the fret colours, then strum  ·  chords need every fret  ·  Clone Hero charts play as written', journey: 'Autopilot flies  ·  steer any time to take over', saber: 'Red left, blue right  ·  avoid the mines  ·  phone: swipe', punch: 'Punch the orbs in your colour  ·  phone: tap', drive: 'Fly through gems or shoot them  ·  shoot spikes to clear them  ·  one shot per trigger pull / click / tap' };
 // ===== UI: one canvas drawn for both the flat overlay and the VR panel; separate small HUD canvas =====
 let UW = 1024, UH = 640;          // the menu canvas: landscape 1024 x 640, or a portrait 640 x ~1100 on phones held upright (see UI.applyShape)
-const PT_SCREENS = new Set(['home', 'setup', 'settings', 'pause', 'results', 'spectate', 'party', 'rank', 'loading', 'search', 'ghosts', 'comfort', 'tutorial']);
+const PT_SCREENS = new Set(['home', 'setup', 'settings', 'pause', 'results', 'spectate', 'party', 'rank', 'loading', 'search', 'ghosts', 'comfort', 'tutorial', 'live', 'radio']);
 const C = { bg: 'rgba(9,7,26,0.92)', panel: 'rgba(34,29,74,0.85)', panel2: 'rgba(52,44,108,0.92)', hov: 'rgba(86,74,170,0.96)', cy: '#19e3ff', mg: '#ff3fd0', gd: '#ffd34d', tx: '#eef3ff', dim: '#98a1cc', red: '#ff5470', ok: '#46ffa0' };
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 const GRADE_COL = { S: '#ffd34d', A: '#46ffa0', B: '#19e3ff', C: '#c9a0ff', D: '#ff9a5c', F: '#ff5470' };
@@ -6315,6 +6318,8 @@ const UI = {
       case 'setup_up': this.setTop = Math.max(0, (this.setTop | 0) - 3); this.dirty = true; break;
       case 'setup_dn': this.setTop = (this.setTop | 0) + 3; this.dirty = true; break;
       case 'comfort': this.set('comfort'); break;
+      case 'lv_open': case 'lv_back': case 'lv_listen': case 'lv_begin': case 'lv_sdn': case 'lv_sup': Live.act(id); break;
+      case 'rd_open': case 'rd_back': case 'rd_get': case 'rd_gen': case 'rd_retry': case 'rd_up': case 'rd_dn': Radio.act(id, parts); break;
       case 'tut_open': case 'tut_back': case 'tut_prev': case 'tut_next': case 'tut_toc': case 'tut_pg': case 'tut_plat': case 'tut_up': case 'tut_dn': Tut.act(id, parts); break;
       case 'mrs': this.set('mr'); break;
       case 'mrback': this.set('settings'); break;
@@ -6390,6 +6395,7 @@ const UI = {
       .catch((e) => { delete BS.dl[d.id]; this.toast((e && e.message) || 'Download failed'); });
   },
   scrollList(d) {
+    if (this.screen === 'radio') { Radio.scroll(d); return; }
     if (this.screen === 'tutorial') { Tut.scroll(d); return; }
     if (this.screen === 'search') { const n = BS.results.length; this.sTop = clamp(this.sTop + d * 3, 0, Math.max(0, n - 4)); if (this.sTop + 4 >= n - 2 && BS.more && !BS.loading && n) BS.run(true); this.dirty = true; return; }
     const n = Library.items.length; if (this.screen !== 'home' || !n) return; Library.selected = clamp(Library.selected + d, 0, n - 1); this.confirmRemove = -1; this.dirty = true; },
@@ -6404,7 +6410,7 @@ const UI = {
   },
   draw() {
     const g = this.g; g.clearRect(0, 0, UW, UH); this.W.length = 0; g.textBaseline = 'alphabetic';
-    switch (this.screen) { case 'home': this.home(); break; case 'settings': this.settings(); break; case 'pause': this.pause(); break; case 'results': this.results(); break; case 'party': Party.draw(this); break; case 'rank': Party.drawResults(this); break; case 'loading': this.loading(); break; case 'search': this.search(); break; case 'setup': this.setup(); break; case 'comfort': this.comfort(); break; case 'mr': this.mrScreen(); break; case 'calib': Calib.draw(this); break; case 'ghosts': Ghosts.draw(this); break; case 'gtr': Gtr.draw(this); break; case 'spectate': Spectate.draw(this); break; case 'tutorial': Tut.draw(this); break; }
+    switch (this.screen) { case 'home': this.home(); break; case 'settings': this.settings(); break; case 'pause': this.pause(); break; case 'results': this.results(); break; case 'party': Party.draw(this); break; case 'rank': Party.drawResults(this); break; case 'loading': this.loading(); break; case 'search': this.search(); break; case 'setup': this.setup(); break; case 'comfort': this.comfort(); break; case 'mr': this.mrScreen(); break; case 'calib': Calib.draw(this); break; case 'ghosts': Ghosts.draw(this); break; case 'gtr': Gtr.draw(this); break; case 'spectate': Spectate.draw(this); break; case 'tutorial': Tut.draw(this); break; case 'live': Live.draw(this); break; case 'radio': Radio.draw(this); break; }
     if (this.toastT > 0 && this.toastMsg) {
       g.font = this.font(24, 600); const w = Math.min(900, g.measureText(this.toastMsg).width + 56);
       this.rr((UW - w) / 2, UH - 82, w, 52, 26); g.fillStyle = 'rgba(0,0,0,0.88)'; g.fill(); g.lineWidth = 2; g.strokeStyle = C.cy; g.stroke();
@@ -6965,6 +6971,161 @@ const Ghosts = {
   }
 };
 
+// ===== LIVE AUDIO: Journey that listens to the microphone and reacts to whatever music is playing nearby (another device, speakers, the headset's own speakers) =====
+// The game normally pre-scans a whole song. Here the same kind of analysis (16 log-spaced bands at 50 frames a second, onsets, a tempo and beat phase, a loudness curve) is filled in
+// as the sound arrives, into a synthetic hour-long "song" that the renderer and the road generator read exactly as they read a scanned one. Nothing is recorded or sent anywhere.
+const LIVE_FPS = 50, LIVE_MAX = 3600, LIVE_GAINS = [0.5, 0.75, 1, 1.5, 2, 3, 4];
+const Live = {
+  state: 'idle', err: '', warn: '', level: 0, seen: false, stream: null, src: null, gain: null, an: null, mute: null, fd: null, b0: null, b1: null,
+  A: null, track: null, running: false, starting: false, acc: 0, lastT: 0, runT: 0, warned: false,
+  supported() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); },
+
+  async open() {                                                          // ask for the microphone (echo cancelling, noise suppression and auto gain are all OFF: they would eat the music)
+    if (this.state === 'on') return true; if (this.state === 'asking') return false;
+    if (!this.supported()) { this.err = window.isSecureContext === false ? 'The microphone needs a secure (https) page.' : 'This browser cannot use a microphone.'; this.state = 'fail'; UI.dirty = true; return false; }
+    this.state = 'asking'; this.err = ''; this.warn = ''; UI.dirty = true;
+    try {
+      AudioEng.init(); await AudioEng.resumeCtx();
+      const st = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }, video: false });
+      const ctx = AudioEng.ctx; this.stream = st; this.src = ctx.createMediaStreamSource(st); this.gain = ctx.createGain(); this.gain.gain.value = Settings.liveGain || 1;
+      this.an = ctx.createAnalyser(); this.an.fftSize = 2048; this.an.smoothingTimeConstant = 0.2; this.an.minDecibels = -120; this.an.maxDecibels = -10;
+      this.mute = ctx.createGain(); this.mute.gain.value = 0;               // pulled through a silent gain so every browser keeps the analyser running, and the mic never reaches the speakers
+      this.src.connect(this.gain); this.gain.connect(this.an); this.an.connect(this.mute); this.mute.connect(ctx.destination);
+      this.fd = new Float32Array(this.an.frequencyBinCount); this.edges(ctx.sampleRate); this.resetAn();
+      const tr = st.getAudioTracks()[0]; if (tr) { tr.addEventListener('ended', () => { this.warn = 'The microphone stopped. Is another app using it?'; this.close(); UI.dirty = true; }); }
+      this.state = 'on'; UI.dirty = true; return true;
+    } catch (e) {
+      this.state = 'fail'; const n = e && e.name; this.err = (n === 'NotAllowedError' || n === 'SecurityError') ? 'Microphone blocked. Allow it for this page in the browser settings, then try again.' : n === 'NotFoundError' ? 'No microphone found on this device.' : 'Could not start the microphone.'; UI.dirty = true; return false;
+    }
+  },
+  close() {
+    try { if (this.stream) this.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    try { if (this.src) this.src.disconnect(); if (this.gain) this.gain.disconnect(); if (this.an) this.an.disconnect(); if (this.mute) this.mute.disconnect(); } catch (e) {}
+    this.stream = this.src = this.gain = this.an = this.mute = null; this.state = 'idle'; this.level = 0; this.seen = false; UI.dirty = true;
+  },
+  setGain(d) { const i = clamp(LIVE_GAINS.indexOf(Settings.liveGain || 1) + d, 0, LIVE_GAINS.length - 1); Settings.liveGain = LIVE_GAINS[i < 0 ? 2 : i]; saveSettings(); if (this.gain) this.gain.gain.value = Settings.liveGain; UI.dirty = true; },
+
+  edges(sr) {                                                              // the same log-spaced bands as the song scanner, mapped onto this analyser's bins
+    const binW = sr / 2048, fHi = Math.min(10240, sr / 2 * 0.95), fLo = 40, ratio = Math.pow(fHi / fLo, 1 / A_NB); this.b0 = new Int32Array(A_NB); this.b1 = new Int32Array(A_NB);
+    for (let b = 0; b < A_NB; b++) { this.b0[b] = Math.max(1, Math.floor(fLo * Math.pow(ratio, b) / binW)); this.b1[b] = Math.max(this.b0[b] + 1, Math.floor(fLo * Math.pow(ratio, b + 1) / binW)); }
+  },
+  resetAn() {
+    this.v = new Float32Array(A_NB); this.pv = new Float32Array(A_NB); this.ref = new Float32Array(A_NB).fill(0.5); this.val = new Uint8Array(A_NB);
+    this.fl = [0, 0, 0]; this.fh = new Float32Array(600); this.xh = new Float32Array(600); this.ti = 0; this.ff = [0, 0, 0]; this.fp = [null, null, null]; this.lastOn = -9; this.refS = 0.2; this.refL = 0.2; this.curv = 0.5; this.fi = -1; this.cen = 0.5;
+    this.fluxRing = new Float32Array(17); this.tpoll = 0; this.est = { bpm: 120, n: 0 };
+  },
+
+  newTrack() {                                                             // a synthetic hour: the renderer and road generator read it like a scanned song, and we fill the bands in as they happen
+    const nF = LIVE_MAX * LIVE_FPS, sr = LIVE_FPS * A_HOP, rnd = mulberry32(hashStr('live' + Date.now())), sections = []; let t = 0; while (t < LIVE_MAX - 40) { t += 26 + 16 * rnd(); sections.push(t); }
+    const A = { version: A_VERSION, live: true, dur: LIVE_MAX, sr, hop: A_HOP / sr, nF, NB: A_NB, bands: new Uint8Array(nF * A_NB), loud: new Uint8Array(nF), bpm: 120, phase: 0, down: 0, onsets: [], sections, curve: new Float32Array(LIVE_MAX * 2 + 8).fill(0.55), beats: null };
+    this.A = A; return { key: 'live' + ((Date.now() / 1000) | 0), name: 'Live audio', analysis: A, buffer: null, live: true };
+  },
+  async begin() {
+    if (this.starting) return; this.starting = true;
+    try {
+      if (typeof Party !== 'undefined' && Party.on && Party.on()) { UI.toast('Live audio is not available in a Party'); return; }
+      if (!(await this.open())) { if (UI.screen !== 'live') UI.set('live'); return; }
+      Settings.mode = 'journey'; applyModeView(); saveSettings();
+      const tr = this.newTrack(); this.resetAn(); AudioEng.init(); await AudioEng.resumeCtx();
+      Input.target = 0; Input.rawPrev = 0; Input.recenterLean(); Gov.acc = 0; Gov.n = 0; Gov.bad = 0;
+      Game.start(tr, Settings.difficulty); this.track = tr; this.running = true; this.acc = 0; this.lastT = 0; this.runT = 0; this.warned = false; UI.set(null);
+    } catch (e) { UI.set('live'); UI.toast('Could not start: ' + (e && e.message ? e.message : e)); }
+    finally { this.starting = false; }
+  },
+  endRun() { this.running = false; if (this.A) this.A.dur = Math.max(1, this.lastT); },
+
+  tick(dt) {                                                               // every frame; mic work only happens on this screen or inside a live run, so the mic is released the moment you leave
+    if (this.state !== 'on') return;
+    const playing = this.running && Game.track === this.track && (Game.state === 'playing' || Game.state === 'paused');
+    if (this.running && !playing) this.endRun();
+    const idle = UI.screen === 'live';
+    if (!playing && !idle && !this.starting) { this.close(); return; }
+    const nowMs = performance.now(), feed = playing && Game.state === 'playing'; this.acc = Math.min(0.5, this.acc + Math.min(0.5, (nowMs - (this.lastNow || nowMs)) / 1000)); this.lastNow = nowMs;          // real elapsed time (a hitching frame must not lose analysis ticks)
+    if (this.acc >= 0.02) { this.read(); while (this.acc >= 0.02) { this.acc -= 0.02; this.step(feed); } }
+    if (feed) { this.runT += dt; if (!this.warned && this.runT > 10 && !this.seen) { this.warned = true; UI.toast('Not hearing anything: turn the music up, move closer, or raise sensitivity'); } }
+    if (idle) UI.dirty = true;
+  },
+  read() {                                                                 // the analyser's spectrum -> 16 log bands (same shape of numbers as the scanner)
+    this.an.getFloatFrequencyData(this.fd); const fd = this.fd, v = this.v; let tot = 0;
+    for (let b = 0; b < A_NB; b++) { let s = 0; const a = this.b0[b], e = Math.min(this.b1[b], fd.length); for (let k = a; k < e; k++) s += Math.pow(10, fd[k] / 20); const m = 4.5 * s / Math.max(1, e - a); v[b] = Math.log(1 + 50 * m); tot += v[b]; }
+    const lv = clamp((tot / A_NB) / 0.7, 0, 1); this.level += (lv - this.level) * (lv > this.level ? 0.5 : 0.12); if (lv > 0.06) this.seen = true;
+  },
+  step(feed) {
+    const v = this.v, pv = this.pv; let fLo = 0, fMid = 0, fHi = 0, cn = 0, cd = 0, sum = 0;
+    for (let b = 0; b < A_NB; b++) {
+      const d = Math.max(0, v[b] - pv[b]); if (b < 5) fLo += d; else if (b < 11) fMid += d; else fHi += d; cn += b * d; cd += d; pv[b] = v[b];
+      this.ref[b] = Math.max(0.5, v[b], this.ref[b] * 0.9993); const x = Math.min(255, Math.round(200 * v[b] / (0.85 * this.ref[b]))); this.val[b] = x; sum += x;
+    }
+    const flux = fLo + fMid + 0.7 * fHi, loud = sum / A_NB, ti = this.ti++;
+    // adaptive-threshold onset picking, one tick behind so the peak can be confirmed
+    const ring = this.fluxRing; ring[ti % 17] = flux; let mean = 0, n = Math.min(17, ti + 1); for (let i = 0; i < n; i++) mean += ring[i]; mean /= n; const thr = mean * 1.45 + 0.05;
+    this.ff.push(flux); this.ff.shift(); this.fp.push({ thr, fLo, fMid, fHi, c: cd > 1e-6 ? cn / cd / (A_NB - 1) : 0.5, t: this.lastT }); this.fp.shift();
+    const x0 = this.ff[0], x1 = this.ff[1], x2 = this.ff[2], p1 = this.fp[1], t = this.lastT;
+    this.xh[ti % 600] = Math.max(0, flux - mean);
+    if (p1 && feed && x1 > p1.thr && x1 >= x0 && x1 > x2 && ti - this.lastOn >= 2 && this.level > 0.05) {
+      const ex = x1 - p1.thr; this.refS = Math.max(ex, this.refS * 0.9996); const tt = p1.fLo + p1.fMid + p1.fHi + 1e-6;
+      this.A.onsets.push({ t: Math.max(0, t), f: 0, s: Math.min(1.2, ex / Math.max(0.12, 0.8 * this.refS)), lo: p1.fLo / tt, mid: p1.fMid / tt, hi: p1.fHi / tt, c: p1.c }); this.lastOn = ti;
+    } else this.refS = Math.max(0.12, this.refS * 0.9996);
+    if (!feed) return;
+    const T = Game.songT; this.lastT = T; if (T < 0) return;
+    const A = this.A, fi = Math.min(A.nF - 4, Math.max(0, Math.round(T * LIVE_FPS - 1)));
+    for (let k = Math.max(0, this.fi < 0 ? fi : this.fi + 1); k <= fi + 2; k++) { for (let b = 0; b < A_NB; b++) A.bands[k * A_NB + b] = this.val[b]; A.loud[k] = Math.round(loud); }
+    this.fi = fi;
+    // loudness curve (0.5 s steps) for the section intensity, hills and bends
+    this.refL = Math.max(0.2 * 200, loud, this.refL * 0.9997); this.curv += (clamp(loud / (0.9 * this.refL), 0, 1.2) - this.curv) * 0.04;
+    const ck = Math.floor(T / 0.5); for (let k = ck; k <= Math.min(A.curve.length - 1, ck + 5); k++) A.curve[k] = this.curv;
+    if (++this.tpoll >= LIVE_FPS) { this.tpoll = 0; this.tempo(T); }
+  },
+  tempo(T) {                                                               // tempo from the last ~12 s of onset strength (autocorrelation), beat phase by sliding a comb over it
+    const n = Math.min(this.ti, 600); if (n < 250 || this.level < 0.08) return; const x = this.xh, L = 600, base = this.ti, at = (i) => x[(base - 1 - i + L * 4) % L];
+    let best = 0, bs = -1, mean = 0, cnt = 0; const sc = {};
+    for (let lag = 17; lag <= 50; lag++) { let s = 0; for (let i = lag; i < n; i++) s += at(i) * at(i - lag); s /= (n - lag); const bpm = 3000 / lag; s *= 1 - 0.2 * Math.abs(Math.log2(bpm / 125)); sc[lag] = s; mean += s; cnt++; if (s > bs) { bs = s; best = lag; } }
+    mean /= cnt; if (bs < mean * 1.25) return;
+    { const l2 = Math.round(best / 2); if (l2 >= 18 && sc[l2] !== undefined && sc[l2] >= 0.5 * bs) { best = l2; bs = sc[l2]; } }          // a snare on every other beat makes two beats the strongest lag: when half of it is nearly as strong, that is the real beat
+    let lag = best; const a = sc[best - 1], b = sc[best], c = sc[best + 1]; if (a !== undefined && c !== undefined) { const dn = a - 2 * b + c; if (dn < 0) lag = best + 0.5 * (a - c) / dn; }
+    const bpm0 = clamp(3000 / lag, 60, 180), A = this.A, e = this.est; let bb = bpm0, bk = 0, bsc = -1, bper = 60 / bpm0;
+    const K = 16;          // fine search: nudge the tempo a little either way and keep the (tempo, phase) whose beat grid sits best on the onset strength, so a 1% tempo error cannot smear the phase over 12 s
+    for (let dl = -0.03; dl <= 0.0301; dl += 0.005) {
+      const cand = bpm0 * (1 + dl), per = 60 / cand, sco = new Float32Array(K);
+      for (let i = 0; i < n; i++) { const xv = at(i); if (xv < 0.02) continue; const ts = T - i / LIVE_FPS, ph = ((ts % per) + per) % per; for (let k = 0; k < K; k++) { let d = Math.abs(ph - k * per / K); d = Math.min(d, per - d); if (d < 0.03) sco[k] += xv * (1 - d / 0.03); } }
+      for (let k = 0; k < K; k++) if (sco[k] > bsc) { bsc = sco[k]; bb = cand; bk = k; bper = per; }
+    }
+    e.n++; A.bpm += (bb - (e.n === 1 ? 120 : A.bpm)) * (e.n < 4 ? 0.6 : 0.25);
+    const per = 60 / A.bpm, ph = bk * bper / K; let dl = (ph % per) - (((A.phase % per) + per) % per); if (dl > per / 2) dl -= per; if (dl < -per / 2) dl += per; A.phase += dl * (e.n < 3 ? 1 : 0.35);
+  },
+
+  // ---------- the setup screen ----------
+  draw(u) {
+    const P = u.pt, g = u.g, R = u.frame('Live audio', 'Journey that listens', 'lv_back', 'Back'), on = this.state === 'on', ask = this.state === 'asking';
+    let y = R.y + (P ? 36 : 28); const ff = u.font(P ? 25 : 19, 500), lh = P ? 35 : 27;
+    y = u.wrap('Play music on another device or speaker near this one. The road, colours and scenes follow the sound as it plays.', R.x + 6, y, R.w - 12, ff, C.tx, lh, 4) + (P ? 10 : 4);
+    y = u.wrap('Speakers work best (headphones cannot be heard). Nothing is recorded or sent anywhere, and the mic is released as soon as you leave.', R.x + 6, y, R.w - 12, ff, C.dim, lh, 4) + (P ? 18 : 12);
+    u.text('MICROPHONE', R.x + 6, y + 14, u.font(P ? 21 : 16, 700), C.dim); y += P ? 30 : 24;
+    const bh = P ? 54 : 38; u.rr(R.x, y, R.w, bh, 14); g.fillStyle = 'rgba(255,255,255,0.08)'; g.fill();
+    if (on) { const w = Math.max(10, (R.w - 8) * clamp(this.level, 0, 1)), gr = g.createLinearGradient(R.x, 0, R.x + R.w, 0); gr.addColorStop(0, C.cy); gr.addColorStop(1, C.mg); u.rr(R.x + 4, y + 4, w, bh - 8, 10); g.fillStyle = gr; g.fill(); }
+    const msg = this.err || (ask ? 'Waiting for permission…' : !on ? 'Not listening yet' : this.level < 0.08 ? 'Quiet… turn the music up or move the mic closer' : 'Hearing music');
+    u.text(u.fit(msg, R.w - 20, u.font(P ? 24 : 18, 600)), R.x + 6, y + bh + (P ? 38 : 28), u.font(P ? 24 : 18, 600), this.err ? C.red || '#ff6a6a' : on && this.level >= 0.08 ? C.gd : C.dim);
+    if (this.warn) u.text(u.fit(this.warn, R.w - 20, u.font(P ? 22 : 17, 500)), R.x + 6, y + bh + (P ? 74 : 54), u.font(P ? 22 : 17, 500), C.dim);
+    y += bh + (P ? 96 : 76);
+    u.text('SENSITIVITY', R.x + 6, y + 14, u.font(P ? 21 : 16, 700), C.dim); y += P ? 26 : 22;
+    const sh = P ? 70 : 50, sw = P ? 120 : 90, gv = Settings.liveGain || 1; u.button('lv_sdn', R.x, y, sw, sh, '−', { size: P ? 40 : 30, weight: 800 }); u.button('lv_sup', R.x + R.w - sw, y, sw, sh, '+', { size: P ? 40 : 30, weight: 800 });
+    u.text('x' + gv, R.x + R.w / 2, y + sh / 2 + 1, u.font(P ? 34 : 26, 800), C.cy, 'center', 'middle'); y += sh + (P ? 14 : 10);
+    u.text(u.fit('Raise it if the bar stays low; lower it if the room is noisy', R.w - 12, u.font(P ? 21 : 16, 500)), R.x + R.w / 2, y + 14, u.font(P ? 21 : 16, 500), C.dim, 'center');
+    const bhh = P ? 100 : 70, by = R.b - bhh, partyOn = typeof Party !== 'undefined' && Party.on && Party.on();
+    if (partyOn) u.text('Not available while you are in a Party', UW / 2, by - 16, u.font(P ? 24 : 19, 600), C.gd, 'center');
+    if (!on) u.button('lv_listen', R.x, by, R.w, bhh, ask ? 'WAITING…' : '🎙   START LISTENING', { primary: true, size: P ? 36 : 28, weight: 800, dis: ask });
+    else u.button('lv_begin', R.x, by, R.w, bhh, '✦   BEGIN JOURNEY', { primary: true, size: P ? 36 : 28, weight: 800, dis: partyOn });
+  },
+  act(id) {
+    if (id === 'lv_open') { this.err = ''; this.warn = ''; UI.set('live'); }
+    else if (id === 'lv_back') { this.close(); UI.set('setup'); }
+    else if (id === 'lv_listen') this.open();
+    else if (id === 'lv_begin') this.begin();
+    else if (id === 'lv_sdn') this.setGain(-1);
+    else if (id === 'lv_sup') this.setGain(1);
+  }
+};
+
 // ===== MENUS: home, ready-screen, settings, pause and results, laid out for both the wide panel (1024 x 640: flat screens and the VR panel) and a tall portrait canvas (640 x ~1100: phones held upright) =====
 // Every screen computes its positions from UW / UH and UI.pt (portrait). Text and touch targets are bigger in portrait because that canvas is shown at about 60% scale.
 Object.assign(UI, {
@@ -7047,8 +7208,8 @@ Object.assign(UI, {
     // library actions
     const ay = P ? UH - 214 - 0 : 548;
     if (!P) {
-      if (xr) { this.button('search', 28, ay, 440, 54, '⌕  Search songs online', { size: 23 }); this.button('exitvr', 478, ay, 150, 54, '⏏  Exit VR', { size: 21 }); this.text('Stick scrolls the list  ·  add your own files on the flat page', 330, ay + 78, this.font(17, 500), C.dim, 'center'); }
-      else { const nf = Object.keys(S.favs).filter(k => /^bs/.test(k)).length; this.evenRow([['add', '＋ Add file', { size: 18 }], ['search', '⌕ Search', { size: 18 }], ['explist', 'Save favs' + (nf ? ' (' + nf + ')' : ''), { size: 18, primary: nf > 0 }], ['implist', 'Load favs', { size: 18 }]], 28, ay, 590, 54, 8); this.text('Star a song to favourite it  ·  ＋Q lines up a set to play back to back', 28 + 295, ay + 80, this.font(16, 500), C.dim, 'center'); }
+      if (xr) { this.button('search', 28, ay, 290, 54, '⌕  Search songs', { size: 22 }); this.button('rd_open', 326, ay, 150, 54, '📻  Radio', { size: 22 }); this.button('exitvr', 484, ay, 144, 54, '⏏  Exit VR', { size: 21 }); this.text('Stick scrolls the list  ·  add your own files on the flat page', 330, ay + 78, this.font(17, 500), C.dim, 'center'); }
+      else { const nf = Object.keys(S.favs).filter(k => /^bs/.test(k)).length; this.evenRow([['add', '＋ Add file', { size: 18 }], ['search', '⌕ Search', { size: 17 }], ['rd_open', '📻 Radio', { size: 17 }], ['explist', 'Save favs' + (nf ? ' (' + nf + ')' : ''), { size: 15, primary: nf > 0 }], ['implist', 'Load favs', { size: 15 }]], 28, ay, 590, 54, 8); this.text('Star a song to favourite it  ·  ＋Q lines up a set to play back to back', 28 + 295, ay + 80, this.font(16, 500), C.dim, 'center'); }
     }
     // right card (landscape) / bottom stack (portrait)
     const cx = P ? 24 : 676, cw = P ? UW - 48 : 324, cy0 = P ? UH - 452 + 8 : 108;
@@ -7074,7 +7235,7 @@ Object.assign(UI, {
       this.button('spd:-', cx, y - 10, 70, 60, '−', { size: 32 }); this.button('spd:+', cx + 70 + 150, y - 10, 70, 60, '+', { size: 32 }); this.text('SPEED ' + S.speed.toFixed(1) + 'x', cx + 70 + 75, y + 30, this.font(24, 800), C.tx, 'center');
       this.button('setup_open', cx + 306, y - 10, cw - 306, 60, (MODE_LABEL[S.mode] || '').split('  ·')[0].replace(/^\S+\s+/, '') + ' ▸', { size: 22, r: 14 });
       y += 66; const nf = Object.keys(S.favs).filter(k => /^bs/.test(k)).length;
-      this.evenRow([['add', '＋ Add', { size: 22 }], ['search', '⌕ Search', { size: 22 }], ['explist', '★ Save' + (nf ? ' ' + nf : ''), { size: 22, primary: nf > 0 }], ['implist', '★ Load', { size: 22 }]], cx, y, cw, 62, 8);
+      this.evenRow([['add', '＋ Add', { size: 22 }], ['search', '⌕ Search', { size: 20 }], ['rd_open', '📻 Radio', { size: 20 }], ['explist', '★ Save' + (nf ? ' ' + nf : ''), { size: 19, primary: nf > 0 }], ['implist', '★ Load', { size: 19 }]], cx, y, cw, 62, 8);
       if (Queue.keys.length) { const nq = Queue.items().length; y += 70; this.button('qplay', cx, y, cw - 110, 56, '▶ PLAY SET · ' + nq, { size: 24, weight: 800, dis: !nq }); this.button('qclear', cx + cw - 102, y, 102, 56, 'Clear', { size: 22 }); }
       this.button('play', cx, UH - 24 - 96, cw, 96, sel && sel.status === 'scanning' ? 'ANALYSING…' : '▶   PLAY', { primary: true, size: 38, weight: 800, dis: !sel || sel.status !== 'ready' });
     }
@@ -7096,6 +7257,7 @@ Object.assign(UI, {
     else if (sel && sel.bs) { this.button('csrc', R.x, ey, P ? R.w : 400, P ? 60 : 40, CSRC_LABEL[S.chartSrc] || CSRC_LABEL.map, { size: P ? 20 : 16, r: 12 }); y = ey + (P ? 68 : 48); }
     else y = ey;
     if (S.mode === 'play' || S.mode === 'journey') { const gx = (S.mode === 'guitar' || (sel && sel.bs)) ? (P ? R.x : R.x + 410) : R.x, gy = (P && (sel && sel.bs)) ? ey + 68 : ey; this.button('ghosts', gx, gy, P ? R.w : 300, P ? 60 : 40, '👻 Ghosts  ·  ' + (sel ? Ghosts.list('dmtsurf.ghost.' + sel.key + ':' + S.difficulty).length : 0) + ' saved  ▸', { size: P ? 22 : 17, r: 12 }); y = Math.max(y, gy + (P ? 68 : 48)); }
+    if (S.mode === 'journey') { const gx2 = (sel && sel.bs) ? (P ? R.x : R.x + 410) : R.x, gy2 = (P && (sel && sel.bs)) ? ey + 68 : ey, lx = P ? R.x : gx2 + 310, ly = P ? gy2 + 68 : gy2; this.button('lv_open', lx, ly, P ? R.w : 330, P ? 60 : 40, '🎙 Live audio (mic)  ▸', { size: P ? 22 : 17, r: 12 }); y = Math.max(y, ly + (P ? 68 : 48)); }
     const best = sel && L.best(sel, S.difficulty), hy = Math.min(y + (P ? 40 : 30), UH - (P ? 188 : 128));
     this.text(this.fit(S.mode === 'journey' ? 'Autopilot flies  ·  steer any time to take over' : MODE_HINT[S.mode] || (best ? 'Best  ' + best.score.toLocaleString() + '   ' + best.grade : 'No score yet on ' + DIFFICULTIES[S.difficulty].name), UW - 60, this.font(P ? 23 : 19, 600)), UW / 2, hy, this.font(P ? 23 : 19, 600), best && S.mode !== 'journey' ? C.gd : C.cy, 'center');
     const lab = Queue.arm ? '▶   START SET  ·  ' + Queue.items().length + ' songs' : S.mode === 'journey' ? '✦   BEGIN JOURNEY' : S.mode === 'saber' ? '⚔   SLICE' : S.mode === 'punch' ? '✊   PUNCH' : S.mode === 'drive' ? '🔫   DRIVE' : S.mode === 'guitar' ? '🎸   ROCK' : '▶   START';
@@ -8203,6 +8365,78 @@ const Pilot = {
   }
 };
 
+// ===== RADIO: free-to-listen music (Creative Commons and public domain) from the Internet Archive's netlabel and Free Music Archive collections. No account, no ads: pick a genre, tap a row, and the tracks are added to your library and analysed like any song =====
+const RADIO_GENRES = [['Electronic', 'electronic OR techno OR house OR trance OR synthwave'], ['Ambient', 'ambient OR chillout OR downtempo'], ['Rock', 'rock OR punk OR metal OR indie'], ['Hip hop', 'hip-hop OR hiphop OR rap OR beats'], ['Classical', 'classical OR orchestral OR piano'], ['Jazz & funk', 'jazz OR funk OR soul'], ['Chiptune', 'chiptune OR 8bit OR videogame'], ['Folk', 'folk OR acoustic OR country'], ['Dance', 'dance OR edm OR "drum and bass" OR dubstep'], ['Lo-fi', 'lofi OR lo-fi OR instrumental']];
+const Radio = {
+  API: 'https://archive.org', g: 0, results: [], page: 0, more: true, loading: false, error: '', top: 0, dl: {}, done: {}, gen: 0, vis: 6, from: 'home',
+  licLabel(u) {                                                            // 'creativecommons.org/licenses/by-nc-sa/3.0/' -> 'CC BY-NC-SA 3.0'; anything that is not CC or public domain is not offered
+    const s = String(u || ''); if (/publicdomain|\/zero\//i.test(s)) return 'Public domain'; const m = s.match(/creativecommons\.org\/licenses\/([a-z-]+)\/?([\d.]*)/i); return m ? 'CC ' + m[1].toUpperCase() + (m[2] ? ' ' + m[2] : '') : '';
+  },
+  open(from) { this.from = from || 'home'; UI.set('radio'); if (!this.results.length && !this.loading) this.run(false); },
+  async run(more) {
+    const gen = more ? this.gen : ++this.gen; if (!more) { this.page = 0; this.results = []; this.more = true; this.top = 0; }
+    this.loading = true; this.error = ''; UI.dirty = true;
+    try {
+      const q = 'mediatype:audio AND collection:(netlabels OR freemusicarchive) AND subject:(' + RADIO_GENRES[this.g][1] + ')';
+      const url = this.API + '/advancedsearch.php?q=' + encodeURIComponent(q) + '&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=licenseurl&sort%5B%5D=downloads+desc&rows=30&page=' + (this.page + 1) + '&output=json';
+      const r = await fetch(url); if (!r.ok) throw new Error('Radio search failed (' + r.status + ')');
+      const j = await r.json(); if (gen !== this.gen) return; const docs = (j.response && j.response.docs) || [];
+      const first = (x) => Array.isArray(x) ? x[0] : x;
+      for (const d of docs) { const lic = this.licLabel(first(d.licenseurl)); if (!lic || !d.identifier || this.results.some(o => o.id === d.identifier)) continue; this.results.push({ id: d.identifier, title: String(first(d.title) || d.identifier), artist: String(first(d.creator) || 'Unknown artist'), lic }); }
+      this.page++; this.more = docs.length >= 30 && this.page < 8;
+      if (!this.results.length) this.error = this.more ? '' : 'No free tracks found here: try another genre';
+      if (!this.results.length && this.more) { this.loading = false; return this.run(true); }
+    } catch (e) { if (gen === this.gen) { this.error = (e && e.message && !/fetch|network|load failed/i.test(e.message)) ? e.message : 'Could not reach the music archive. Check your connection (or this browser may be blocking it).'; this.more = false; } }
+    if (gen === this.gen) this.loading = false; UI.dirty = true;
+  },
+  async get(d) {                                                           // add an album/item: up to 3 of its tracks (each under 25 MB), straight from the archive into your library
+    if (this.dl[d.id] !== undefined) return; this.dl[d.id] = 0; UI.dirty = true;
+    try {
+      const mr = await fetch(this.API + '/metadata/' + encodeURIComponent(d.id)); if (!mr.ok) throw new Error('Could not read this item (' + mr.status + ')');
+      const m = await mr.json(), mp3 = (m.files || []).filter(f => /mp3/i.test(f.format || '') && +f.size > 100000 && +f.size < 25e6 && !/\.m3u|sample|preview/i.test(f.name));
+      mp3.sort((a, b) => (parseInt(a.track, 10) || 999) - (parseInt(b.track, 10) || 999) || String(a.name).localeCompare(b.name));
+      const pick = mp3.slice(0, 3); if (!pick.length) throw new Error('No playable track in this one');
+      const files = []; let k = 0;
+      for (const f of pick) {
+        const r = await fetch(this.API + '/download/' + encodeURIComponent(d.id) + '/' + String(f.name).split('/').map(encodeURIComponent).join('/')); if (!r.ok) throw new Error('Download failed (' + r.status + ')');
+        const blob = await r.blob(), tt = String(f.title || f.name.replace(/\.[^.]+$/, '')).replace(/[\\/:*?"<>|]+/g, ' ').trim();
+        files.push(new File([blob], (pick.length > 1 || !f.title ? tt + ' - ' + d.artist : tt + ' - ' + d.artist).slice(0, 90) + '.mp3', { type: 'audio/mpeg' })); this.dl[d.id] = ++k / pick.length; UI.dirty = true;
+      }
+      const n = await Library.addFiles(files); this.done[d.id] = true; UI.toast(n ? 'Added ' + n + ' track' + (n > 1 ? 's' : '') + ' - analysing now' : 'Already in your library');
+    } catch (e) { UI.toast((e && e.message && !/fetch|network|load failed/i.test(e.message)) ? e.message : 'Download blocked or failed - try another'); }
+    delete this.dl[d.id]; UI.dirty = true;
+  },
+  scroll(d) { const n = this.results.length; this.top = clamp(this.top + d * Math.max(1, this.vis - 1), 0, Math.max(0, n - this.vis)); if (this.top + this.vis >= n - 2 && this.more && !this.loading && n) this.run(true); UI.dirty = true; },
+  act(id, parts) {
+    if (id === 'rd_open') this.open(UI.screen);
+    else if (id === 'rd_back') UI.set(this.from === 'radio' || !this.from ? 'home' : this.from);
+    else if (parts[0] === 'rd_gen') { this.g = +parts[1] | 0; this.run(false); }
+    else if (parts[0] === 'rd_get') { const d = this.results[+parts[1]]; if (d) this.get(d); }
+    else if (id === 'rd_retry') this.run(this.results.length > 0);
+    else if (id === 'rd_up') this.scroll(-1);
+    else if (id === 'rd_dn') this.scroll(1);
+  },
+  draw(u) {
+    const P = u.pt, g = u.g, R = u.frame('Radio', 'Free music · Creative Commons · no ads', 'rd_back', 'Back'); let y = R.y;
+    const cols = P ? 3 : 5, gap = 8, ch = P ? 60 : 44, cw = (R.w - gap * (cols - 1)) / cols;
+    RADIO_GENRES.forEach((q, i) => u.chip('rd_gen:' + i, R.x + (i % cols) * (cw + gap), y + ((i / cols) | 0) * (ch + gap), cw, ch, q[0], '', i === this.g, { ls: P ? 23 : 18 }));
+    y += Math.ceil(RADIO_GENRES.length / cols) * (ch + gap) + 6;
+    const barH = P ? 84 : 0, lw = R.w - (P ? 0 : 70), rh = P ? 92 : 62, rg = 6, bot = R.b - barH - (P ? 6 : 24), n = this.results.length; this.vis = Math.max(2, Math.floor((bot - y + rg) / (rh + rg))); this.top = clamp(this.top, 0, Math.max(0, n - this.vis));
+    if (!n) { const msg = this.loading ? 'Finding music…' : this.error || 'Pick a genre'; u.wrap(msg, R.x + R.w / 2, y + 60, R.w - 40, u.font(P ? 26 : 20, 600), this.error ? '#ff6a6a' : C.dim, P ? 36 : 28, 4, 'center'); if (this.error) u.button('rd_retry', R.x + R.w / 2 - 110, y + 150, 220, P ? 66 : 50, 'Try again', { size: P ? 26 : 20 }); }
+    for (let r = 0; r < this.vis; r++) {
+      const i = this.top + r; if (i >= n) break; const d = this.results[i], yy = y + r * (rh + rg), busy = this.dl[d.id] !== undefined, got = !!this.done[d.id];
+      u.button('rd_get:' + i, R.x, yy, lw, rh, '', { r: 14, dis: busy });
+      u.text(u.fit(d.title, lw - (P ? 190 : 200), u.font(P ? 28 : 22, 700)), R.x + 18, yy + rh * (P ? 0.38 : 0.4), u.font(P ? 28 : 22, 700), C.tx);
+      u.text(u.fit(d.artist + '  ·  ' + d.lic, lw - (P ? 190 : 200), u.font(P ? 21 : 16, 500)), R.x + 18, yy + rh * (P ? 0.72 : 0.74), u.font(P ? 21 : 16, 500), C.dim);
+      const lab = busy ? Math.round(this.dl[d.id] * 100) + '%…' : got ? '✓ Added' : '＋ GET', bw = P ? 150 : 130, bh = rh - (P ? 28 : 20);
+      u.rr(R.x + lw - bw - 12, yy + (rh - bh) / 2, bw, bh, 12); g.fillStyle = got ? 'rgba(255,211,77,0.16)' : 'rgba(25,227,255,0.18)'; g.fill(); u.text(lab, R.x + lw - bw / 2 - 12, yy + rh / 2 + 1, u.font(P ? 26 : 20, 800), got ? C.gd : C.cy, 'center', 'middle');
+    }
+    if (n && this.loading) u.text('Loading more…', R.x + lw / 2, bot + 18, u.font(P ? 20 : 15, 500), C.dim, 'center');
+    if (!P) { const bh = (bot - y - 8) / 2; u.button('rd_up', R.x + lw + 10, y, 60, bh, '▲', { size: 22, dis: this.top <= 0 }); u.button('rd_dn', R.x + lw + 10, y + bh + 8, 60, bh, '▼', { size: 22, dis: this.top + this.vis >= n && !this.more }); u.text('Tap a row to add it: up to 3 tracks per item. Each licence stays with its artist; check it before reusing a track anywhere else.', R.x + lw / 2, R.b - 2, u.font(14, 500), C.dim, 'center'); }
+    else { const by = R.b - barH + 8, bw = (R.w - 8) / 2; u.button('rd_up', R.x, by, bw, barH - 8, '▲', { size: 28, dis: this.top <= 0 }); u.button('rd_dn', R.x + bw + 8, by, bw, barH - 8, '▼', { size: 28, dis: this.top + this.vis >= n && !this.more }); }
+  }
+};
+
 // ===== ROOM LAYER: the music, drawn into your real room =====
 // Passthrough finally gets used as a stage. A skyline of spectrum bars stands on your real floor, a circular visualiser breathes under your feet,
 // every hit sends a ripple from the exact spot you struck across the real walls (the depth shader in 10_z_mr.js draws it), a sonar scan sweeps the room,
@@ -8551,6 +8785,7 @@ const TUT_PAGES = [
   { id: 'journey', t: 'Journey', sub: 'Just the visuals', b: () => [
     ['p', 'No score, no failing. The autopilot flies and you just enjoy the music and the show.'],
     ['li', 'Steer any time to take over, and let go to hand back to the autopilot.'], ['li', 'Great with Cockpit view, a headset, and a favourite song.'], ['li', 'You can also ride along with a saved ghost run from the Ghosts screen.'],
+    ['h', 'Live audio (mic)'], ['p', 'On the Ready screen in Journey, tap Live audio. Play music on another device or speaker nearby and the road, colours and scenes follow the sound, with no song file needed.'], ['li', 'Tap Start listening and allow the microphone. The bar shows what it hears.'], ['li', 'Raise Sensitivity if the bar stays low; lower it in a noisy room.'], ['li', 'Speakers work best. Headphones cannot be heard. Nothing is recorded or sent anywhere.'], ['li', 'It reacts to the sound as it plays, so it feels a touch looser than a scanned song. It runs for up to an hour.'],
     ['tip', 'Scenes change with the song. Pick the scene style (including Happy only) in Settings.']] },
   { id: 'controls', t: 'Controls', sub: 'Pick your device', plat: true, b: (p) => p === 'vr' ? [
     ['h', 'Steering (Settings > Steering)'], ['k', 'Point', 'The default. Aim a controller down the road and the ship follows where you point. Tilt it up to fly up.'], ['k', 'Grip', 'Squeeze a grip and drag sideways. Squeeze both and turn them like a wheel.'], ['k', 'Stick', 'Thumbstick left and right.'], ['k', 'Lean', 'Lean your head to the side.'],
@@ -8574,6 +8809,7 @@ const TUT_PAGES = [
   { id: 'songs', t: 'Songs & sets', sub: 'Your music, your maps', b: () => [
     ['h', 'Adding songs'], ['li', '+ Add file: any mp3, ogg, wav or similar. The game analyses it once and keeps it.'], ['li', 'Search: thousands of Beat Saber maps from BeatSaver. Filter by genre, rating or year, tap GET, and it is added.'], ['li', 'Clone Hero charts can be added too, for Guitar mode.'],
     ['h', 'Organising'], ['k', '★', 'Favourite a song. Save favs and Load favs back them up or move them to another device.'], ['k', '+Q', 'Line songs up in order and press PLAY SET to play them back to back.'], ['k', 'Speed', 'Track speed from 0.7x to 1.4x makes any song easier or harder.'],
+    ['h', 'Radio: free music'], ['p', 'Tap Radio on the home page, pick a genre and tap a row. Up to 3 tracks per item are added to your library and analysed. Everything there is Creative Commons or public domain, with no ads. It comes from the Internet Archive; each licence stays with its artist.'],
     ['h', 'Maps and analysis'], ['p', 'Beat Saber maps can play as written, or use the game\'s own analysis, or both together (Chart source on the Ready screen). Your best score and grade show per song and difficulty.'],
     ['tip', 'On a headset, add files from a computer or phone first (the file picker is on the flat page), then they appear in VR.']] },
   { id: 'party', t: 'Party', sub: 'Up to 8 players', b: () => [
@@ -8590,7 +8826,7 @@ const TUT_PAGES = [
     ['h', 'VR thumbstick drift'], ['li', 'Raise Stick dead zone in Settings if your ship drifts on its own.'], ['li', 'Ignore stuck stick keeps a drifting stick from taking over.'],
     ['tip', 'Take a break every 20 to 30 minutes in VR, and stop if you feel unwell.']] },
   { id: 'help', t: 'Troubleshooting', sub: 'Common problems', b: () => [
-    ['k', 'Ship drifts on its own', 'Stick drift. Raise Stick dead zone in Settings, or recentre.'], ['k', 'Hits feel early / late', 'Settings > Calibrate audio, or change Audio offset.'], ['k', 'Game is laggy', 'Settings > Quality: Low. On a phone close other tabs.'], ['k', 'Song stuck analysing', 'Give it a minute, large files take longer. Remove and re-add if it fails.'], ['k', 'No VR button', 'Your browser needs WebXR (Quest Browser works). Use https.'], ['k', 'Party cannot connect', 'Try another network. Some school, work or mobile networks block direct connections.'], ['k', 'Party songs off by a beat', 'Everyone should wait for the countdown. Devices read their clocks, so check the time is automatic on each.'], ['k', 'Menu in the wrong place (VR)', 'Click a thumbstick or press Recenter.'],
+    ['k', 'Ship drifts on its own', 'Stick drift. Raise Stick dead zone in Settings, or recentre.'], ['k', 'Hits feel early / late', 'Settings > Calibrate audio, or change Audio offset.'], ['k', 'Game is laggy', 'Settings > Quality: Low. On a phone close other tabs.'], ['k', 'Song stuck analysing', 'Give it a minute, large files take longer. Remove and re-add if it fails.'], ['k', 'No VR button', 'Your browser needs WebXR (Quest Browser works). Use https.'], ['k', 'Party cannot connect', 'Try another network. Some school, work or mobile networks block direct connections.'], ['k', 'Party songs off by a beat', 'Everyone should wait for the countdown. Devices read their clocks, so check the time is automatic on each.'], ['k', 'Live audio hears nothing', 'Allow the microphone for this page, turn the music up, move closer, or raise Sensitivity. Quest Browser may need the mic permission turned on in the headset settings.'], ['k', 'Radio will not load', 'It needs the Internet Archive reachable from your browser. Try another network, or add files yourself with Add file.'], ['k', 'Menu in the wrong place (VR)', 'Click a thumbstick or press Recenter.'],
     ['tip', 'Still stuck? Reload the page. Your songs, settings and scores are saved on the device.']] }
 ];
 const Tut = {
@@ -8875,7 +9111,7 @@ function handleEvents(list) {
       case 'fire': if (st === 'playing' && Game.drive && (!Game.watch || Game.gunner)) driveFire(e); break;
       case 'pause': doPause(true); break;
       case 'ok': if (st === 'playing') Game.activateOverdrive(); else if (sc === 'home' || sc === 'setup') handleAct('play'); else if (sc === 'pause') handleAct('resume'); else if (sc === 'results') handleAct(Queue.run ? 'qagain' : 'retry'); break;
-      case 'back': if (st === 'playing') doPause(true); else if (sc === 'pause') handleAct('resume'); else if (sc === 'setup') UI.set('home'); else if (sc === 'comfort') UI.set('settings'); else if (sc === 'tutorial') Tut.close(); else if (sc === 'settings' || sc === 'search') UI.act('back'); else if (sc === 'results') handleAct('menu'); break;
+      case 'back': if (st === 'playing') doPause(true); else if (sc === 'pause') handleAct('resume'); else if (sc === 'setup') UI.set('home'); else if (sc === 'comfort') UI.set('settings'); else if (sc === 'tutorial') Tut.close(); else if (sc === 'live') Live.act('lv_back'); else if (sc === 'radio') Radio.act('rd_back', ['rd_back']); else if (sc === 'settings' || sc === 'search') UI.act('back'); else if (sc === 'results') handleAct('menu'); break;
       case 'up': UI.scrollList(-1); break;
       case 'down': UI.scrollList(1); break;
       case 'left': case 'right': if (sc === 'home' || sc === 'setup') { Settings.difficulty = clamp(Settings.difficulty + (e.a === 'left' ? -1 : 1), 0, 3); saveSettings(); UI.dirty = true; } break;
@@ -8953,7 +9189,7 @@ function loop(time, frame) {
   if (inXR && Input.headOK) AudioEng.listen(Input.head, Input.headQ);
   MR.frame(dt, inXR ? frame : null, inXR ? renderer.xr.getReferenceSpace() : null);
   if (Game.state === 'playing') { if (Game.watch) { if (Game.gunner) Party.steerGunner(dt); else Spectate.steer(dt); } else if (Game.journey) Game.autoSteer(dt); else Game.latTarget = Input.target; }
-  Game.update(dt); if (Game.watch) Spectate.apply(dt); Spectate.tick(dt); Party.tick(dt);
+  Game.update(dt); if (Game.watch) Spectate.apply(dt); Spectate.tick(dt); Party.tick(dt); Live.tick(dt);
   if (Game.state !== lastState) {
     if (Game.state === 'results') { UI.set('results'); if (XR.session) placePanel(); }
     lastState = Game.state;
