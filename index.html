@@ -98,7 +98,7 @@ const DIFFICULTIES = [
 const DEFAULT_SETTINGS = {
   difficulty: 1, speed: 1, control: 'point', ctlv: 2, flight: true, hand: 'right', sens: 1,
   vignette: true, haptics: 'full', hitVol: 0.6, musicVol: 0.9, offsetMs: 0,
-  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: false, mrHand: false, mrV3: true, mrDepth: false, mrFloorOff: 0, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: true, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
+  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: false, mrHand: false, mrV3: true, mrV4: true, mrTunnel: true, mrTunnelW: 1, mrDepth: false, mrFloorOff: 0, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: false, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
   quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
 };
 function applyModeView() {                       // each mode family remembers its own view; Drive-by defaults to the cockpit
@@ -149,6 +149,7 @@ function loadSettings() {
   Profile.load();
   try { const o = JSON.parse(Store.get('dmtsurf.settings') || '{}'); if (typeof o.haptics === 'boolean') { o.haptics = o.haptics ? 'full' : 'off'; Store.set('dmtsurf.settings', JSON.stringify(o)); } } catch (e) {}
   try { Object.assign(Settings, JSON.parse(Store.get('dmtsurf.settings') || '{}')); } catch (e) {}
+  if (!Settings.mrV4) { Settings.mrSky = false; Settings.mrV4 = true; try { Store.set('dmtsurf.settings', JSON.stringify(Settings)); } catch (e) {} }          // the bar ring around you is now optional: the tunnel carries the show
   if (!Settings.mrV3) { Settings.mrDepth = false; Settings.mrOcc = false; Settings.mrHand = false; Settings.mrV3 = true; try { Store.set('dmtsurf.settings', JSON.stringify(Settings)); } catch (e) {} }          // Quest 3: depth hiding and hand glow start off until they are proven on your headset
   if ((Settings.ctlv | 0) < 2) { Settings.control = 'point'; Settings.ctlv = 2; saveSettings(); }          // v7: pointing is the default (grip is still in Settings)
   if ((Settings.sndv | 0) < 1) { Settings.collectSound = false; Settings.sndv = 1; saveSettings(); }          // v5.9: the gem pluck is off by default (it is still one tap away in Settings)
@@ -6005,6 +6006,8 @@ const MR_PILOT_ROWS = [
   { k: 'skyBolt', label: 'Sky bolt (MR cockpit): hand up + trigger', bool: true }
 ];
 const MR_ROOM_ROWS = [
+  { k: 'mrTunnel', label: 'Light tunnel around track', bool: true },
+  { k: 'mrTunnelW', label: 'Tunnel width', min: 0.6, max: 1.8, step: 0.1, fmt: v => Math.round(v * 100) + '%' },
   { k: 'mrSky', label: 'Spectrum skyline', bool: true },
   { k: 'mrFloor', label: 'Floor rings', bool: true },
   { k: 'mrHitFx', label: 'Hit ripples on walls', bool: true },
@@ -6349,9 +6352,9 @@ const UI = {
     this.button('mrpg', 774, 50, 216, 44, this.mrPage === 1 ? 'Room show ›' : this.mrPage === 2 ? '‹ Passthrough' : 'Pilot mode ›', { size: 20, weight: 700 });
     if (this.mrPage === 2) {
       this.text('Room show: the music, drawn into your real room', 36, 134, this.font(24, 800), C.cy);
-      this.rowsBlock(MR_ROOM_ROWS, 5, 156, 470, 34, 40);
-      this.text('Bars and rings stand on your real floor and hide behind real furniture.  Ripples start where you hit and cross your walls.', 36, 420, this.font(17, 500), C.dim);
-      this.text('Hands only: clap both hands together to fire overdrive.  Sonar and ripples need room depth (Quest 3).', 36, 446, this.font(17, 500), C.dim);
+      this.rowsBlock(MR_ROOM_ROWS, 6, 156, 470, 34, 40);
+      this.text('The tunnel follows the road: it dims only what you see through it, so the rest of your room stays clear.', 36, 420, this.font(17, 500), C.dim);
+      this.text('Hands only: clap both hands together to fire overdrive.  Sonar, wall ripples and hiding need Room depth (beta).', 36, 446, this.font(17, 500), C.dim);
       this.button('mrback', 330, 560, 364, 56, 'Done', { primary: true, size: 26, weight: 800 }); return;
     }
     if (this.mrPage === 1) {
@@ -6822,6 +6825,7 @@ const MR = {
     this.ret = new THREE.Mesh(new THREE.RingGeometry(0.1, 0.16, 40).rotateX(-Math.PI / 2), cm(0xffffff)); this.ret.material.opacity = 0.9; this.ret.visible = false; this.ret.frustumCulled = false; this.ret.renderOrder = 4; scene.add(this.ret);
     if (typeof Pilot !== 'undefined') Pilot.init(this);
     if (typeof Room !== 'undefined') Room.init(this);
+    if (typeof Tunnel !== 'undefined') Tunnel.init(this);
     this.ready = true; this.apply(true);
   },
 
@@ -6902,6 +6906,7 @@ const MR = {
   onGame(ev) {
     if (typeof Pilot !== 'undefined') Pilot.onGame(ev);
     if (typeof Room !== 'undefined') Room.onGame(ev);
+    if (typeof Tunnel !== 'undefined') Tunnel.onGame(ev);
     if (!this.on) return;
     if (ev.k === 'drop') this.burst('shatter'); else if (ev.k === 'phrase' || ev.k === 'power') this.burst('confetti');
   },
@@ -6912,7 +6917,7 @@ const MR = {
   },
   frame(dt, frame, ref) {
     if (!this.ready) return; const g = Game, S = Settings, U = R.U, B = this.bgU, playing = g.state === 'playing';
-    if (!this.on && !this.fake) { this.apply(); if (typeof Pilot !== 'undefined') Pilot.frame(dt, 0, playing); if (typeof Room !== 'undefined') Room.off(); return; }
+    if (!this.on && !this.fake) { this.apply(); if (typeof Pilot !== 'undefined') Pilot.frame(dt, 0, playing); if (typeof Room !== 'undefined') Room.off(); if (typeof Tunnel !== 'undefined') Tunnel.off(); return; }
     // world strength: a clear room in the menus, the full trip on drops and star power, and the quick toggle for a straight return to VR
     let t = this.quick ? 1 : playing ? S.mrWorld : Math.min(S.mrWorld, 0.12);
     if (!this.quick && playing) t = Math.min(1, t + 0.28 * (R.od || 0) + 0.3 * (R.dropE || 0));
@@ -6937,7 +6942,7 @@ const MR = {
     this.ret.visible = !!this.placing && !!(this.hit.right || this.hit.left);
     if (this.ret.visible) { const h = this.hit.right || this.hit.left; this.ret.position.set(h.x, h.y + 0.01, h.z); this.ret.scale.setScalar(1 + 0.15 * Math.sin(performance.now() * 0.008)); }
     // ---- hands, shapes, shards, ring ----
-    this.hands(dt, v); this.orbit(dt, v, playing); this.shardStep(dt); this.safeRing(dt, playing); if (typeof Pilot !== 'undefined') Pilot.frame(dt, v, playing); if (typeof Room !== 'undefined') Room.frame(dt, v, playing);
+    this.hands(dt, v); this.orbit(dt, v, playing); this.shardStep(dt); this.safeRing(dt, playing); if (typeof Pilot !== 'undefined') Pilot.frame(dt, v, playing); if (typeof Room !== 'undefined') Room.frame(dt, v, playing); if (typeof Tunnel !== 'undefined') Tunnel.frame(dt, v, playing);
   },
   readDepth(frame, ref) {
     try {
@@ -7389,6 +7394,70 @@ const Spectate = {
     u.text(this.msg, UW / 2, big ? 300 : 230, u.font(24, 700), this.st === 'error' ? C.red : live ? C.ok : C.tx, 'center');
     if (this.miss) u.text('Missing song: ' + this.miss, UW / 2, 350, u.font(20, 600), C.gd, 'center');
     u.button('sp_stop', 312, 470, 400, 64, live || busy ? 'Stop' : 'OK', { size: 26, weight: 800 });
+  }
+};
+
+// ===== TUNNEL: a light tunnel around the track, so the show lives on the road and the rest of your room stays clear passthrough =====
+// Needs no depth sensing at all. It is a thin arch of glowing rings that follows the road's bends, a faint darkening film (only what you see THROUGH the arch is dimmed),
+// spectrum lines that climb the walls (bass low, treble high), a wave that races down it on every hit, and it breathes open on drops. Menus keep the room completely clear.
+const TUN_N = 44, TUN_M = 24, TUN_D0 = -2, TUN_D1 = 78;
+const Tunnel = {
+  ready: false, alpha: 0, age: 9, hc: [1, 1, 1], open: 0, rows: [],
+  init(mr) {
+    this.mr = mr; const V = THREE, U = R.U, n = (TUN_N + 1) * (TUN_M + 1);
+    const g = new V.BufferGeometry(), pos = new V.BufferAttribute(new Float32Array(n * 3), 3).setUsage(V.DynamicDrawUsage), aD = new Float32Array(n), aP = new Float32Array(n), idx = [];
+    for (let i = 0; i <= TUN_N; i++) for (let j = 0; j <= TUN_M; j++) { const k = i * (TUN_M + 1) + j; aD[k] = TUN_D0 + (TUN_D1 - TUN_D0) * i / TUN_N; aP[k] = j / TUN_M; }
+    for (let i = 0; i < TUN_N; i++) for (let j = 0; j < TUN_M; j++) { const a = i * (TUN_M + 1) + j, b = a + TUN_M + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+    g.setAttribute('position', pos); g.setAttribute('aD', new V.BufferAttribute(aD, 1)); g.setAttribute('aP', new V.BufferAttribute(aP, 1)); g.setIndex(idx);
+    const mat = new V.ShaderMaterial({
+      uniforms: { uA1: U.uA1, uA2: U.uA2, uMRb: U.uMRb, uBeat: U.uBeat, uTime: U.uTime, uTravel: U.uTravel, uLow: U.uLow, uMd: U.uMd, uHigh: U.uHigh, uAlpha: { value: 0 }, uFilm: { value: 0.25 }, uAge: { value: 9 }, uHC: { value: new V.Vector3(1, 1, 1) }, uB: { value: new Array(16).fill(0) } },
+      vertexShader: 'attribute float aD; attribute float aP; varying float vD, vP; void main() { vD = aD; vP = aP; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `precision highp float; uniform vec3 uA1, uA2, uHC; uniform float uMRb, uBeat, uTime, uTravel, uLow, uMd, uHigh, uAlpha, uFilm, uAge; uniform float uB[16]; varying float vD, vP;
+        void main() {
+          float t = abs(vP - 0.5) * 2.0, wd = vD + uTravel;
+          int bi = int(clamp(floor((1.0 - t) * 15.99), 0.0, 15.0)); float e = uB[bi];
+          float ring = smoothstep(0.07, 0.0, abs(fract(wd / 3.0 + 0.5) - 0.5)), sub = smoothstep(0.05, 0.0, abs(fract(wd / 0.75 + 0.5) - 0.5)) * 0.25;
+          float lon = smoothstep(0.05, 0.0, abs(fract(vP * 12.0 + 0.5) - 0.5)) * 0.6;
+          float near = smoothstep(3.0, 16.0, vD), far = smoothstep(78.0, 22.0, vD), fade = near * far;
+          vec3 base = mix(uA1, uA2, clamp(1.0 - t, 0.0, 1.0));
+          float cell = 0.1 + e * 0.95 + 0.25 * uBeat;
+          vec3 c = base * (ring * 0.9 + lon * 0.55 + sub) * cell;
+          float wave = exp(-pow((vD - uAge * 62.0) * 0.16, 2.0)) * exp(-uAge * 1.5);
+          c += uHC * wave * (0.25 + ring * 1.2 + lon * 0.5);
+          c += base * 0.05 * uBeat * (1.0 - t);
+          gl_FragColor = vec4(c * fade * uMRb * uAlpha, uFilm * uAlpha * far * smoothstep(1.0, 12.0, vD) * (0.55 + 0.45 * (1.0 - t)));
+        }`,
+      transparent: true, depthWrite: false, depthTest: true, side: V.DoubleSide, blending: V.CustomBlending, blendEquation: V.AddEquation, blendSrc: V.OneFactor, blendDst: V.OneMinusSrcAlphaFactor, blendSrcAlpha: V.OneFactor, blendDstAlpha: V.OneMinusSrcAlphaFactor
+    });
+    this.pos = pos; this.mesh = new V.Mesh(g, mat); this.mesh.frustumCulled = false; this.mesh.visible = false; this.mesh.renderOrder = 6; R.rig.add(this.mesh);
+    this.ready = true;
+  },
+  onGame(ev) {
+    if (!this.ready || !MR.on || !Settings.mrTunnel) return; const k = ev.k;
+    if (k === 'hit' || k === 'saber' || k === 'smash' || k === 'gold') { const c = (typeof LANE_COL !== 'undefined' && LANE_COL[ev.lane | 0]) || Room.col('a1'); this.hc = ev.perfect || ev.good ? [1, 0.85, 0.35] : c; this.age = 0; }
+    else if (k === 'bad' || k === 'saberMine' || k === 'saberWrong') { this.hc = [1, 0.12, 0.15]; this.age = 0; }
+    else if (k === 'drop') { this.hc = [1, 1, 1]; this.age = 0; this.open = 1; }
+    else if (k === 'phrase' || k === 'power') { this.hc = Room.col('a2'); this.age = 0; }
+  },
+  off() { if (this.ready) { this.mesh.visible = false; this.alpha = 0; } },
+  frame(dt, v, playing) {
+    if (!this.ready) return; const mr = this.mr, S = Settings, g = Game, m = this.mesh;
+    if (!mr.on || !S.mrTunnel) { this.off(); return; }
+    const want = (g.state === 'playing' || g.state === 'paused') ? 1 : 0;
+    this.alpha += (want - this.alpha) * Math.min(1, dt * (want ? 1.6 : 4));
+    m.visible = this.alpha > 0.02; if (!m.visible) return;
+    this.age += dt; this.open = Math.max(0, this.open - dt * 0.7);
+    const u = m.material.uniforms, W = clamp(S.mrTunnelW || 1, 0.6, 1.8), od = g.odActive ? 1 : 0;
+    u.uAlpha.value = this.alpha * clamp(S.mrBright, 0.4, 1.6); u.uFilm.value = clamp(S.mrDim, 0, 0.9) * 0.75 * (1 + 0.5 * this.open); u.uAge.value = this.age;
+    u.uHC.value.set(this.hc[0], this.hc[1], this.hc[2]); for (let i = 0; i < 16; i++) u.uB.value[i] = Room.fe[i] || 0;
+    // the arch follows the road: for each ring, find the road's centre and heading, then sweep a half-ellipse over it
+    const Rr = 3.7 * W * (1 + 0.3 * this.open + 0.08 * od), Rh = 2.9 * W * (1 + 0.25 * this.open), P = this.pos.array;
+    for (let i = 0; i <= TUN_N; i++) {
+      const d = TUN_D0 + (TUN_D1 - TUN_D0) * i / TUN_N; R.pl(d, 0); const th = R.qt, rx = Math.cos(th), rz = Math.sin(th), y0 = R.evalS(R.shY, d) - 0.1;
+      const cx = R.qx, cz = R.qz;
+      for (let j = 0; j <= TUN_M; j++) { const a = Math.PI * j / TUN_M, c = Math.cos(a) * Rr, s = Math.sin(a) * Rh, o = (i * (TUN_M + 1) + j) * 3; P[o] = cx + rx * c; P[o + 1] = y0 + s; P[o + 2] = cz + rz * c; }
+    }
+    this.pos.needsUpdate = true;
   }
 };
 
