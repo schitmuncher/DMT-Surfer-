@@ -1101,13 +1101,15 @@ const Game = {
     this.corners = buildCorners(this.secs, this.secTurn, this.a, cm, this.speed);
     this.journey = Settings.mode === 'journey'; this.guitar = Settings.mode === 'guitar'; this.saber = Settings.mode === 'saber' || Settings.mode === 'punch'; this.weapon = Settings.mode === 'punch' ? 'fists' : 'sabers';
     this.rolls = (this.journey || this.saber || this.guitar || Settings.cSteady || Settings.cMotion) ? [] : buildRolls(seg.infos, this.corners, this.a ? this.a.dur : 0); this.roll = 0; this.rollWarn = null;
-    this.drive = Settings.mode === 'drive'; this.shotQ.length = 0; this.shotGems = this.shotObs = this.shots = 0;
+    this.replay = false; this.drive = Settings.mode === 'drive'; this.shotQ.length = 0; this.shotGems = this.shotObs = this.shots = 0;
     if (this.saber || this.guitar) this.corners = [];
     if (this.saber) {                                      // galactic horse: slice (or punch) the cubes as they arrive
       this.chart = generateSaberChart(this.a, diff, track.key, track.bs, this.weapon === 'fists'); this.walls = 0; this.energy = 60;
       const ord = seg.infos.map((x, i) => i).sort((x, y) => seg.infos[y].I - seg.infos[x].I).slice(0, 2); this.barrage = seg.infos.length > 2 ? ord.map(i => [seg.infos[i].t0, seg.infos[i].t1]) : [];
     } else if (this.guitar) {                                    // guitar mode: hold the frets, strum the chords
       this.chart = generateGuitarChart(this.a, diff, track.key, track.ch, track.bs); this.barrage = []; this.walls = 0; this.fretMask = 0; this.gi = 0; this.whammy = 0; this.overstrums = 0; this.gtrLast = null;
+    } else if (this.journey && this.rideSel && this.rideSel.gk === 'dmtsurf.ghost.' + track.key + ':' + diff) {          // riding a saved run: the gems and mines are there too, and each one is taken or missed exactly as that run did
+      this.chart = shapeChart(generateChart(this.a, diff, track.key, track.bs, track.ch), this.a, diff, this.corners, seg.infos, track.key); this.barrage = this.chart.barrage || []; this.walls = this.chart.walls || 0; this.replay = true;
     } else if (this.journey) {                                  // visualiser mode: no gems, no hazards - just the road, the corners and the music
       this.chart = { notes: [], total: 0, golds: 0, holds: 0, tickDt: 0.12, obstacles: 0, maxScore: 0, diff }; this.walls = 0;
       const ord = seg.infos.map((x, i) => i).sort((x, y) => seg.infos[y].I - seg.infos[x].I).slice(0, 2); this.barrage = seg.infos.length > 2 ? ord.map(i => [seg.infos[i].t0, seg.infos[i].t1]) : [];
@@ -1120,7 +1122,7 @@ const Game = {
     this.markStar(track.key); this.planBosses(seg.infos, track.key, diff);
     if (!this.saber && !this.journey && !this.guitar && this.chart.notes.length) this.chart.maxScore = chartMax(this.chart);
     this.notes = this.chart.notes; this.buildRoadW(this.a);
-    for (const n of this.notes) n.hit = HIT_NONE;
+    for (let i = 0; i < this.notes.length; i++) { this.notes[i].hit = HIT_NONE; this.notes[i].ri = i; }
     for (const c of this.corners) { c.ok = null; c.best = undefined; }
     this.score = this.combo = this.maxCombo = this.hits = this.misses = this.perfects = this.golds = this.struck = 0;
     this.stk = 0; this.hellT = 0; this.hellDur = 1; this.pc = 0; this.tierPop = 0; this.tierName = '';
@@ -1186,8 +1188,15 @@ const Game = {
     this.energy = clamp(this.energy + d, relaxed ? 10 : 0, 100);
     if (Settings.deaths && !relaxed && this.energy <= 0 && !this.ended) this.finish(true);
   },
+  replayResolve(n, r) {                                    // ghost ride: the saved run decides what happened to this note (1 taken, 2 struck or missed, 3 passed)
+    if (n.type === NOTE_OBSTACLE) { if (r === 2) { n.hit = HIT_STRUCK; this.struck++; this.emit({ k: 'bad', lane: n.lane, x: n.lane - 2 }); } else if (r === 1) { n.hit = HIT_GOT; this.emit({ k: 'smash', lane: n.lane, x: n.lane - 2 }); } else n.hit = HIT_PASS; return; }
+    if (r === 1) { this.gotNote(n, false, n.hi ? 1.5 : 1); return; }
+    if (r === 3 || n.hi || n.bossFree) { n.hit = HIT_PASS; return; }
+    n.hit = HIT_MISS; this.misses++; if (this.combo >= 8) this.emit({ k: 'break' }); this.combo = 0; this.mult = 1; this.lastMult = 1;
+  },
   resolve(n) {
     if (n.hit !== HIT_NONE) return;                       // already shot down in drive-by mode
+    if (this.replay && this.ride && this.ride.res && this.ride.res.length === this.notes.length) { this.replayResolve(n, this.ride.res[n.ri]); return; }
     const dx = Math.abs(this.lat - (n.lane - 2));
     const up = this.alt > 0.5;
     if (n.type === NOTE_OBSTACLE) {
@@ -1457,7 +1466,7 @@ const Game = {
     this.result.reward = Profile.reward(this.result, this); if (this.result.reward.ach.length) UI.toast('Achievement: ' + this.result.reward.ach.join(', '));
     const key = this.track.key + ':' + this.diff + (this.saber ? ':' + this.weapon : this.drive ? ':drive' : this.guitar ? ':gtr' : '');
     if (!failed && !this.journey && !Queue.run) this.newBest = saveScore(key, { score: this.score, grade: this.result.grade, acc, combo: this.maxCombo });
-    if (this.gRec && !failed && this.gOn && !this.watch) Ghosts.add(this.gKey, this.gRec, this.score, this.result.grade);
+    if (this.gRec && !failed && this.gOn && !this.watch) { this.gRec.res = this.notes.map(n => n.hit); } if (this.gRec && !failed && this.gOn && !this.watch) Ghosts.add(this.gKey, this.gRec, this.score, this.result.grade);
     AudioEng.stop(); if (!this.watch && typeof Spectate !== 'undefined') Spectate.onEnd();
   },
 
@@ -5651,11 +5660,11 @@ const Input = {
   },
   updateFlat(dt) {
     if (Game.state !== 'playing') return;
-    const dir = (this.keys.r ? 1 : 0) - (this.keys.l ? 1 : 0);
+    const dir = clamp((this.keys.r ? 1 : 0) - (this.keys.l ? 1 : 0) + Pad.dx, -1, 1);
     if (dir) this.target = clamp(this.target + dir * dt * 6.5 * Settings.sens, -2.15, 2.15);
     const hd = this.hold; if (hd && performance.now() - hd.t > 170) this.target = clamp(this.target + hd.side * dt * 8 * (Settings.touchSpd || 1), -2, 2);      // keep a thumb down and the ship keeps going
     if (this.fireHeld && Game.drive && performance.now() - (this.fAuto || 0) > 140) { this.fAuto = performance.now(); this.push('fire', {}); }
-    this.liftV = ((this.keys.u || this.mLift) ? 1 : 0) - ((this.keys.dn || this.mDn) ? 1 : 0); this.lift = this.liftV > 0 ? 1 : 0;
+    this.liftV = clamp(((this.keys.u || this.mLift) ? 1 : 0) - ((this.keys.dn || this.mDn) ? 1 : 0) + Pad.liftV, -1, 1); this.lift = this.liftV > 0 ? 1 : 0;
   },
 
   // ---------- XR ----------
@@ -5780,6 +5789,7 @@ const Input = {
   },
   // phones: navigator.vibrate (Android Chrome); iOS Safari has no vibration API, so this quietly does nothing there
   vib(pat) {
+    if (!this.xr && typeof Pad !== 'undefined') Pad.rumble(typeof pat === 'number' ? pat * 2 : 40);
     const k = this.hk(); if (!k || this.xr || !TOUCH || !navigator.vibrate) return;
     const now = performance.now(); if (now - (this.lastVib || 0) < 35) return; this.lastVib = now;
     try { navigator.vibrate(typeof pat === 'number' ? Math.max(1, Math.round(pat * (k < 1 ? 0.6 : 1))) : pat); } catch (e) {}
@@ -5858,6 +5868,7 @@ const Gtr = {
   ctl(p, c) { if (!c || !p) return 0; if (c.t === 'b') { const b = p.buttons[c.i]; return b && (b.pressed || b.value > 0.5) ? 1 : 0; } const v = p.axes[c.i]; return v !== undefined && (v - c.rest) * c.s > 0.5 ? 1 : 0; },
   // frame poll: read the pad, merge keyboard + touch, emit events
   poll(dt) {
+    if (Settings.mode !== 'guitar' && UI.screen !== 'gtr') { this.padMask = 0; this.padId = ''; this.keyMask = 0; if (this.mask) { this.mask = 0; Input.push('gfret', { mask: 0 }); } return; }          // other modes use the plain gamepad layer (Pad)
     const p = this.pad(), m = this.curMap(p); let pm = 0;
     if (p && m) {
       this.padId = p.id; this.status = (m.auto ? 'Xbox 360 guitar layout' : 'Your saved layout') + '  ·  ' + String(p.id).replace(/\(.*?\)/g, '').slice(0, 34);
@@ -5958,6 +5969,60 @@ const Gtr = {
       u.text('No guitar? Keyboard: A S D F G hold frets, Enter strums. Phone: tap the five columns.', 36, 500, u.font(18, 500), C.dim);
       u.text('Test it above: the circles light as you hold frets, the bar flashes on a strum.', 36, 530, u.font(18, 500), C.dim);
     }
+  }
+};
+
+// ===== GAMEPAD: an Xbox / PlayStation / generic pad drives the game on a flat screen (menus, steering, flight, overdrive, drive-by) and rumbles on hits =====
+// Standard layout: left stick or d-pad steers and moves around menus, A / Start confirm, B goes back, Start pauses, X / LB / RB fire overdrive, Y flips the view,
+// right stick up/down climbs and dives (flight), RT / A fire the pistols in Drive-by. In Guitar mode the guitar layer owns the pad instead.
+const Pad = {
+  prev: [], dx: 0, liftV: 0, fire: false, name: '', navT: 0, navDir: 0, fT: 0, last: 0, seen: false,
+  pad() {
+    let l = []; try { l = Array.from(navigator.getGamepads ? navigator.getGamepads() : []).filter(p => p && p.connected && !/oculus|quest|xr-standard|hand tracking/i.test(p.id) && p.buttons.length >= 8); } catch (e) {}
+    return l[0] || null;
+  },
+  btn(p, i) { const b = p.buttons[i]; return !!b && (b.pressed || b.value > 0.5); },
+  poll(dt) {
+    this.dx = 0; this.liftV = 0; this.fire = false;
+    const p = this.pad(); if (!p || UI.xr || Input.xr) { this.name = ''; return; }
+    if (Settings.mode === 'guitar' && (Game.state === 'playing' || UI.screen === 'setup' || UI.screen === 'gtr')) return;          // the guitar layer reads this one
+    if (UI.screen === 'search') return;
+    if (!this.seen) { this.seen = true; try { UI.toast('Controller connected: ' + String(p.id).replace(/\(.*?\)/g, '').trim().slice(0, 32)); } catch (e) {} }
+    this.name = p.id;
+    const B = (i) => this.btn(p, i), E = (i) => B(i) && !this.prev[i], dz = (v) => Math.abs(v) < 0.2 ? 0 : (v - Math.sign(v) * 0.2) / 0.8;
+    const lx = dz(p.axes[0] || 0), ly = dz(p.axes[1] || 0), ry = dz(p.axes[3] || 0), up = B(12), dn = B(13), lf = B(14), rt = B(15);
+    const st = Game.state, sc = UI.screen, playing = st === 'playing';
+    if (playing) {
+      this.dx = clamp(lx + (rt ? 1 : 0) - (lf ? 1 : 0), -1, 1);
+      this.liftV = (ry < -0.4 || up) ? 1 : (ry > 0.4 || dn) ? -1 : 0;
+      if (Game.drive) { this.fire = B(7) || B(0); if (this.fire && performance.now() - this.fT > 140) { this.fT = performance.now(); Input.push('fire', {}); } }
+      if (E(2) || E(4) || E(5)) Input.push('overdrive');
+      if (E(3)) Input.push('view');
+      if (E(9) || E(1)) Input.push('pause');
+      if (E(8)) Input.push('recenter');
+    } else {
+      // menus: the stick or d-pad steps through lists and options, with a repeat when held
+      const ny = (ly > 0.5 || dn) ? 1 : (ly < -0.5 || up) ? -1 : 0, nx = (lx > 0.5 || rt) ? 1 : (lx < -0.5 || lf) ? -1 : 0, key = ny * 3 + nx, now = performance.now();
+      if (key !== this.navDir) { this.navDir = key; this.navT = now + 330; if (key) this.step(nx, ny); } else if (key && now > this.navT) { this.navT = now + 110; this.step(nx, ny); }
+      if (E(0)) Input.push('ok');
+      if (E(1)) Input.push('back');
+      if (E(9)) Input.push(st === 'paused' || sc === 'pause' ? 'ok' : 'ok');
+      if (E(4)) Input.push('left');
+      if (E(5)) Input.push('right');
+      if (E(3) && sc === 'home') UI.act('settings');
+      if (E(2) && sc === 'home') UI.act('search');
+    }
+    for (let i = 0; i < p.buttons.length; i++) this.prev[i] = B(i);
+  },
+  step(nx, ny) {
+    const sc = UI.screen;
+    if (sc === 'setup') { if (ny) UI.act(ny > 0 ? 'mode' : 'mode'); else if (nx) Input.push(nx < 0 ? 'left' : 'right'); }
+    else if (ny) Input.push(ny < 0 ? 'up' : 'down');
+    else if (nx && (sc === 'home')) Input.push(nx < 0 ? 'left' : 'right');
+  },
+  rumble(ms) {
+    const k = Input.hk(); if (!k) return; const p = this.pad(); if (!p) return; const now = performance.now(); if (now - this.last < 40) return; this.last = now;
+    try { const a = p.vibrationActuator; if (a && a.playEffect) a.playEffect('dual-rumble', { duration: Math.min(220, Math.max(15, ms | 0)), strongMagnitude: Math.min(1, 0.35 * k), weakMagnitude: Math.min(1, 0.6 * k) }); } catch (e) {}
   }
 };
 
@@ -6666,33 +6731,33 @@ const Ghosts = {
   dec8(b) { const s = atob(b), a = new Int8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i) << 24 >> 24; return a; },
   dec16(b) { const s = atob(b), n = s.length >> 1, a = new Int16Array(n); for (let i = 0; i < n; i++) a[i] = (s.charCodeAt(i * 2) | (s.charCodeAt(i * 2 + 1) << 8)) << 16 >> 16; return a; },
   raw(gk) { try { const l = JSON.parse(Store.get(this.listKey(gk)) || 'null'); return Array.isArray(l) ? l : []; } catch (e) { return []; } },
-  hydrate(o) { try { return { s: o.s | 0, g: o.g || '?', d: o.d || 0, who: o.who || '', lat: this.dec8(o.l), alt: this.dec8(o.a), sc: o.c ? this.dec16(o.c) : null }; } catch (e) { return null; } },
+  hydrate(o) { try { return { s: o.s | 0, g: o.g || '?', d: o.d || 0, who: o.who || '', lat: this.dec8(o.l), alt: this.dec8(o.a), sc: o.c ? this.dec16(o.c) : null, res: o.r ? this.dec8(o.r) : null }; } catch (e) { return null; } },
   list(gk) {
     const out = this.raw(gk).map((o) => this.hydrate(o)).filter(Boolean);
-    if (!out.length) { const leg = ghostLoad(gk); if (leg) out.push({ s: 0, g: '', d: 0, who: '', lat: leg.lat, alt: leg.alt, sc: null }); }       // runs saved by older builds have no score on them
+    if (!out.length) { const leg = ghostLoad(gk); if (leg) out.push({ s: 0, g: '', d: 0, who: '', lat: leg.lat, alt: leg.alt, sc: null, res: null }); }       // runs saved by older builds have no score on them
     return out;
   },
   top(gk) { return this.list(gk)[0] || null; },
   add(gk, rec, score, grade) {
     if (!rec || !rec.lat || rec.lat.length < 20 || score <= 0) return false; const cur = this.raw(gk), w = cur.length >= this.KEEP ? cur[cur.length - 1].s : -1; if (score <= w) return false;
-    cur.push({ s: score | 0, g: grade, d: Date.now(), l: this.enc8(rec.lat), a: this.enc8(rec.alt), c: this.enc16(rec.sc || []) }); cur.sort((a, b) => b.s - a.s); cur.length = Math.min(cur.length, this.KEEP);
+    cur.push({ s: score | 0, g: grade, d: Date.now(), l: this.enc8(rec.lat), a: this.enc8(rec.alt), c: this.enc16(rec.sc || []), r: rec.res && rec.res.length ? this.enc8(rec.res.slice()) : '' }); cur.sort((a, b) => b.s - a.s); cur.length = Math.min(cur.length, this.KEEP);
     try { Store.set(this.listKey(gk), JSON.stringify(cur)); } catch (e) { return false; } return true;
   },
   del(gk, i) { const cur = this.raw(gk); cur.splice(i, 1); Store.set(this.listKey(gk), JSON.stringify(cur)); },
   scoreAt(gh, t) { if (!gh || !gh.sc || !gh.sc.length) return null; const f = clamp(t * 10, 0, gh.sc.length - 1.001), i = f | 0, k = f - i; return Math.round((gh.sc[i] + (gh.sc[i + 1] - gh.sc[i]) * k) * 10); },
   code(gk, i) {                                                          // a run as a short text code a friend can paste in on the same song
-    const o = this.raw(gk)[i]; if (!o) return ''; return 'DMTG1:' + btoa(unescape(encodeURIComponent(JSON.stringify({ k: String(gk).replace('dmtsurf.ghost.', ''), s: o.s, g: o.g, l: o.l, a: o.a, c: o.c, w: (Settings.name || '') }))));
+    const o = this.raw(gk)[i]; if (!o) return ''; return 'DMTG1:' + btoa(unescape(encodeURIComponent(JSON.stringify({ k: String(gk).replace('dmtsurf.ghost.', ''), s: o.s, g: o.g, l: o.l, a: o.a, c: o.c, r: o.r || '', w: (Settings.name || '') }))));
   },
   importCode(txt) {
     try {
       txt = String(txt || '').trim(); if (txt.indexOf('DMTG1:') !== 0) throw 0; const o = JSON.parse(decodeURIComponent(escape(atob(txt.slice(6))))); if (!o.k || !o.l || !o.a) throw 0;
       const gk = 'dmtsurf.ghost.' + o.k, cur = this.raw(gk); if (cur.some((c) => c.s === o.s && c.l === o.l)) return { ok: true, dup: true, gk };
-      cur.push({ s: o.s | 0, g: o.g, d: Date.now(), l: o.l, a: o.a, c: o.c, who: String(o.w || '').slice(0, 14) }); cur.sort((a, b) => b.s - a.s); cur.length = Math.min(cur.length, 6); Store.set(this.listKey(gk), JSON.stringify(cur)); return { ok: true, gk };
+      cur.push({ s: o.s | 0, g: o.g, d: Date.now(), l: o.l, a: o.a, c: o.c, r: o.r || '', who: String(o.w || '').slice(0, 14) }); cur.sort((a, b) => b.s - a.s); cur.length = Math.min(cur.length, 6); Store.set(this.listKey(gk), JSON.stringify(cur)); return { ok: true, gk };
     } catch (e) { return { ok: false }; }
   },
   ride(i) {                                                              // ghost ride-along: a journey on this song with the ship flown by that run
     const L = Library, it = L.items[L.selected]; if (!it) return; const gk = this.curKey(); const gh = this.list(gk)[i]; if (!gh) return;
-    Game.rideSel = { gk, gh }; Settings.mode = 'journey'; Settings.view = 'cockpit'; saveSettings(); UI.set('home'); startSelected();
+    Game.rideSel = { gk, gh }; Settings.mode = 'journey'; Settings.view = 'cockpit'; saveSettings(); UI.set('home'); startSelected(); UI.toast(gh.res ? 'Ghost ride: every gem that run took or missed is shown' : 'Ghost ride: older run, so gems taken are approximate');
   },
   curKey() { const it = Library.items[Library.selected]; return it ? 'dmtsurf.ghost.' + it.key + ':' + Settings.difficulty : ''; },
   open() { UI.set('ghosts'); },
@@ -7748,7 +7813,7 @@ function loop(time, frame) {
     if (XR.needRecenter && Input.headOK) { XR.needRecenter = false; recenter(); }
   } else Input.updateFlat(dt);
   if (inXR) { const L = Input.hands.left, Rr = Input.hands.right, both = !!(L && Rr && L.btn[3] && Rr.btn[3]); if (both && !XR.qPrev && MR.on) MR.toggleQuick(); XR.qPrev = both; if (MR.gestureTick(dt, Game.state === 'playing')) Input.push('pause'); }
-  Gtr.poll(dt);
+  Pad.poll(dt); Gtr.poll(dt);
   handleEvents(Input.consume());
   if (Game.state === 'playing' && Game.guitar && Gtr.mask) Input.target = Gtr.laneTarget(Input.target);
   UI.pointer(Input.ptr);
