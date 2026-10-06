@@ -63,6 +63,8 @@ addEventListener('keydown',function(e){if(w&&w.parentNode&&(e.key==='Enter'||e.k
 addEventListener('error',function(e){var b=document.getElementById('boot');if(b&&!window.__started){b.style.whiteSpace='pre-wrap';b.style.fontSize='13px';b.style.padding='18px';b.style.letterSpacing='0';b.textContent='Could not start:\n'+(e.message||'script error')+'\n'+(e.lineno?('line '+e.lineno+':'+e.colno):'')+'\n'+(e.filename?'':'');try{fetch(location.href).then(function(r){return r.text()}).then(function(t){var L=t.split('\n')[(e.lineno||1)-1]||'';var c=e.colno||1;b.textContent+='\n\n'+L.slice(Math.max(0,c-70),c+40)}).catch(function(){})}catch(x){}}});
 setTimeout(function(){var b=document.getElementById('boot');if(b&&!window.__started&&b.textContent==='LOADING')b.textContent='LOADING\nunpacking game data...'},4000);
 </script>
+<input type="file" id="chfile" accept=".zip,.sng,.chart,.mid,.ini,.ogg,.mp3,.opus,.wav,.flac" multiple hidden>
+<input type="file" id="chdir" webkitdirectory directory multiple hidden>
 <input type="file" id="listfile" accept=".json,application/json" hidden>
 <input type="file" id="file" accept="audio/*,.mp3,.wav,.ogg,.oga,.m4a,.aac,.flac,.opus,.weba" multiple hidden>
 <script>/**
@@ -96,7 +98,7 @@ const DIFFICULTIES = [
 const DEFAULT_SETTINGS = {
   difficulty: 1, speed: 1, control: 'point', ctlv: 2, flight: true, hand: 'right', sens: 1,
   vignette: true, haptics: 'full', hitVol: 0.6, musicVol: 0.9, offsetMs: 0,
-  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: true, mrHand: true, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: true, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true,
+  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: true, mrHand: true, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: true, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
   quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
 };
 function applyModeView() {                       // each mode family remembers its own view; Drive-by defaults to the cockpit
@@ -455,7 +457,8 @@ function fillGaps(notes, holdList, a, diffIdx, rnd, saber) {
   notes.sort((x, y) => x.t - y.t);
 }
 
-function generateChart(a, diffIdx, seedKey, bs) {
+function generateChart(a, diffIdx, seedKey, bs, ch) {
+  if (ch && Settings.chartSrc !== 'house') { const cc = generateCHChart(a, diffIdx, seedKey, ch); if (Settings.chartSrc === 'mix') cc.gen = true; return cc; }          // a Clone Hero chart: the notes as written (mix: the game fills any quiet stretch)
   if (bs && bs.d && Object.keys(bs.d).length && Settings.chartSrc !== 'house') { const ch = generateBSChart(a, diffIdx, seedKey, bs); if (Settings.chartSrc === 'mix') ch.gen = true; return ch; }      // 'mix': the map as written, then the game fills its quiet gaps
   const D = DIFFICULTIES[diffIdx], rnd = mulberry32(hashStr(seedKey || 'x') + diffIdx * 977);
   let ons = a.onsets.slice();
@@ -526,7 +529,7 @@ function generateChart(a, diffIdx, seedKey, bs) {
     notes.sort((x, y) => x.t - y.t);
   }
 
-  const ch = finalizeChart(notes, holdList, a, diffIdx, obstacles); ch.gen = true; return ch;
+  const out = finalizeChart(notes, holdList, a, diffIdx, obstacles); out.gen = true; return out;
 }
 
 // A streak of closely spaced gems that drift smoothly through the lanes is turned into one long hold that follows them
@@ -1076,7 +1079,7 @@ const Game = {
   fx: [], onEvent: null, comboPop: 0, lastMult: 1,
   secs: [], secScene: [0], secTurn: [1], heading: 0, turnDir: 1, sceneIdx: 0, sceneFlash: 0, loadMsg: '',
   corners: [], cornerIdx: 0, cornersOK: 0, cornersAll: 0, nextCorner: null, shields: 3, shieldMax: 3, inv: 0, nextShieldAt: 28, bt: 0, yaw: 0, barrage: [], walls: 0, wallsClean: 0, hurts: 0, infos: [],
-  journey: false, saber: false, drive: false, flight: false, alt: 0, chaining: false, onChain: null, cMax: 0, cTotal: 0, cHolds: 0, cWalls: 0, cWallsClean: 0, surges: [], rush: 0, build: 0, hype: 0, rushT: 0, rolls: [], roll: 0, rollWarn: null, shotQ: [], shotGems: 0, shotObs: 0, shots: 0, weapon: 'sabers', sab: null, manualT: 0, lastIn: 0,
+  journey: false, saber: false, drive: false, guitar: false, fretMask: 0, gi: 0, whammy: 0, overstrums: 0, flight: false, alt: 0, chaining: false, onChain: null, cMax: 0, cTotal: 0, cHolds: 0, cWalls: 0, cWallsClean: 0, surges: [], rush: 0, build: 0, hype: 0, rushT: 0, rolls: [], roll: 0, rollWarn: null, shotQ: [], shotGems: 0, shotObs: 0, shots: 0, weapon: 'sabers', sab: null, manualT: 0, lastIn: 0,
   holds: [], holdIdx: 0, holding: false, streaks: 0, drops: 0, tickGot: 0, tickAll: 0, kappa: 0, slope0: 0,
 
   baseSpeed(bpm) { return clamp(15 + (bpm - 90) * 0.14, 15, 24) * Settings.speed; },
@@ -1094,33 +1097,35 @@ const Game = {
     const seg = buildSegments(this.a, track.key); this.secs = seg.cuts; this.secScene = seg.scenes; if (typeof R !== 'undefined' && R.ready && R.ensureScenes) R.ensureScenes(this.secScene); this.secTurn = seg.turn; this.infos = seg.infos;
     const cm = Settings.corners === 'auto' ? (UI.xr ? 'soft' : 'full') : Settings.corners;
     this.corners = buildCorners(this.secs, this.secTurn, this.a, cm, this.speed);
-    this.journey = Settings.mode === 'journey'; this.saber = Settings.mode === 'saber' || Settings.mode === 'punch'; this.weapon = Settings.mode === 'punch' ? 'fists' : 'sabers';
-    this.rolls = (this.journey || this.saber || Settings.cSteady || Settings.cMotion) ? [] : buildRolls(seg.infos, this.corners, this.a ? this.a.dur : 0); this.roll = 0; this.rollWarn = null;
+    this.journey = Settings.mode === 'journey'; this.guitar = Settings.mode === 'guitar'; this.saber = Settings.mode === 'saber' || Settings.mode === 'punch'; this.weapon = Settings.mode === 'punch' ? 'fists' : 'sabers';
+    this.rolls = (this.journey || this.saber || this.guitar || Settings.cSteady || Settings.cMotion) ? [] : buildRolls(seg.infos, this.corners, this.a ? this.a.dur : 0); this.roll = 0; this.rollWarn = null;
     this.drive = Settings.mode === 'drive'; this.shotQ.length = 0; this.shotGems = this.shotObs = this.shots = 0;
-    if (this.saber) this.corners = [];
+    if (this.saber || this.guitar) this.corners = [];
     if (this.saber) {                                      // galactic horse: slice (or punch) the cubes as they arrive
       this.chart = generateSaberChart(this.a, diff, track.key, track.bs, this.weapon === 'fists'); this.walls = 0; this.energy = 60;
       const ord = seg.infos.map((x, i) => i).sort((x, y) => seg.infos[y].I - seg.infos[x].I).slice(0, 2); this.barrage = seg.infos.length > 2 ? ord.map(i => [seg.infos[i].t0, seg.infos[i].t1]) : [];
+    } else if (this.guitar) {                                    // guitar mode: hold the frets, strum the chords
+      this.chart = generateGuitarChart(this.a, diff, track.key, track.ch, track.bs); this.barrage = []; this.walls = 0; this.fretMask = 0; this.gi = 0; this.whammy = 0; this.overstrums = 0; this.gtrLast = null;
     } else if (this.journey) {                                  // visualiser mode: no gems, no hazards - just the road, the corners and the music
       this.chart = { notes: [], total: 0, golds: 0, holds: 0, tickDt: 0.12, obstacles: 0, maxScore: 0, diff }; this.walls = 0;
       const ord = seg.infos.map((x, i) => i).sort((x, y) => seg.infos[y].I - seg.infos[x].I).slice(0, 2); this.barrage = seg.infos.length > 2 ? ord.map(i => [seg.infos[i].t0, seg.infos[i].t1]) : [];
-    } else { this.chart = shapeChart(generateChart(this.a, diff, track.key, track.bs), this.a, diff, this.corners, seg.infos, track.key); this.barrage = this.chart.barrage || []; this.walls = this.chart.walls || 0; }
+    } else { this.chart = shapeChart(generateChart(this.a, diff, track.key, track.bs, track.ch), this.a, diff, this.corners, seg.infos, track.key); this.barrage = this.chart.barrage || []; this.walls = this.chart.walls || 0; }
     this.manualT = 0; this.lastIn = Input.target;
     this.surges = (this.journey ? [] : buildSurges(this.a)); this.rush = 0; this.build = 0; this.hype = 0; this.rushT = 0;
-    this.flight = !!Settings.flight && !this.saber && !this.journey; this.alt = 0;
+    this.flight = !!Settings.flight && !this.saber && !this.journey && !this.guitar; this.alt = 0;
     if (this.flight && this.chart.notes.length) { addAltLayer(this.chart, seg.infos, diff, track.key);
       for (const n of this.chart.notes) if (n.hi && this.rolls.some(e => n.t > e.t0 - 1.5 && n.t < e.t1 + 1.5)) n.hi = 0; }          // nothing floats high while the world is flipping or upside down
     this.markStar(track.key); this.planBosses(seg.infos, track.key, diff);
-    if (!this.saber && !this.journey && this.chart.notes.length) this.chart.maxScore = chartMax(this.chart);
+    if (!this.saber && !this.journey && !this.guitar && this.chart.notes.length) this.chart.maxScore = chartMax(this.chart);
     this.notes = this.chart.notes; this.buildRoadW(this.a);
     for (const n of this.notes) n.hit = HIT_NONE;
     for (const c of this.corners) { c.ok = null; c.best = undefined; }
     this.score = this.combo = this.maxCombo = this.hits = this.misses = this.perfects = this.golds = this.struck = 0;
     this.stk = 0; this.hellT = 0; this.hellDur = 1; this.pc = 0; this.tierPop = 0; this.tierName = '';
-    this.mult = this.lastMult = 1; this.energy = this.saber ? 60 : 70; this.od = 0; this.odActive = false; this.odLeft = 0;
+    this.mult = this.lastMult = 1; this.energy = this.saber ? 60 : 70; this.fretMask = 0; this.gi = 0; this.od = 0; this.odActive = false; this.odLeft = 0;
     this.failed = false; this.newBest = false; this.result = null; this.resolved = 0; this.flash = 0; this.fx.length = 0;
     this.lat = 0; this.latTarget = 0; this.latVel = 0;
-    this.gOn = !this.saber && !this.drive && !this.journey && !Queue.run && !this.watch; this.gKey = 'dmtsurf.ghost.' + track.key + ':' + diff; this.gRec = this.gOn ? { lat: [], alt: [], sc: [] } : null; this.ghost = this.gOn ? Ghosts.top(this.gKey) : null; this.ride = (this.journey && this.rideSel && this.rideSel.gk === this.gKey) ? this.rideSel.gh : null; this.rideA = null;          // your best run, replayed as a faint ship
+    this.gOn = !this.saber && !this.drive && !this.journey && !this.guitar && !Queue.run && !this.watch; this.gKey = 'dmtsurf.ghost.' + track.key + ':' + diff; this.gRec = this.gOn ? { lat: [], alt: [], sc: [] } : null; this.ghost = this.gOn ? Ghosts.top(this.gKey) : null; this.ride = (this.journey && this.rideSel && this.rideSel.gk === this.gKey) ? this.rideSel.gh : null; this.rideA = null;          // your best run, replayed as a faint ship
     TrackShape.set(this.a, this.secs, this.secTurn, this.corners, this.speed);
     this.cornerIdx = 0; this.cornersOK = 0; this.cornersAll = 0; this.nextCorner = null; this.shields = this.shieldMax = 3; this.inv = 0; this.nextShieldAt = 28; this.bt = 0; this.yaw = 0; this.wallsClean = 0; this.hurts = 0;
     this.holds = this.notes.filter(n => n.type === NOTE_HOLD); this.holdIdx = 0; this.holding = false; this.streaks = this.drops = this.tickGot = this.tickAll = 0;
@@ -1268,6 +1273,12 @@ const Game = {
   markStar(key) {                                             // star phrases: short runs of notes that glow gold; play a whole run clean and the star power meter jumps
     this.phrases = []; this.phraseGot = 0; this.phraseLost = 0; this.phrasePop = 0;
     const ns = this.chart.notes; if (!ns.length || this.journey) return;
+    if (this.chart.chPhr && this.chart.chPhr.length) { this.phrases = this.chart.chPhr.map(notes => ({ notes, done: false })); return; }          // a Clone Hero chart brings its own star power phrases
+    if (this.guitar) {
+      const C = this.chart.chords, rnd2 = mulberry32(hashStr(key || 'x') + 4242), dur2 = this.a ? this.a.dur : 0; let ci = 0;
+      for (let t0 = 11 + rnd2() * 5; t0 < dur2 - 9; t0 += 19 + rnd2() * 8) { ci = C.findIndex(c => c.t >= t0); if (ci < 0 || ci + 4 >= C.length) break; const run = C.slice(ci, ci + 5), id = this.phrases.length + 1, nn = []; for (const c of run) for (const n of c.notes) { n.star = id; nn.push(n); } this.phrases.push({ notes: nn, done: false }); }
+      return;
+    }
     const ok = (n) => (n.type === NOTE_COLLECT || n.type === NOTE_GOLD || n.type === NOTE_SABER) && !n.hi && !(n.small && !this.saber);
     const rnd = mulberry32(hashStr(key || 'x') + 4242), len = this.saber ? 6 : 5, dur = this.a ? this.a.dur : 0;
     for (let t0 = 11 + rnd() * 5; t0 < dur - 9; t0 += 19 + rnd() * 8) {
@@ -1370,6 +1381,70 @@ const Game = {
     AudioEng.holdSet(this.holding, this.holdLane || 2);
   },
 
+
+  // ---------- guitar mode: frets + strum ----------
+  gtrMult() { return Math.min(4, 1 + Math.floor(this.combo / 10)) * (this.odActive ? 2 : 1); },
+  gtrMatch(c) {                                            // do the held frets satisfy this chord? a single note allows lower frets to stay down (anchors); a chord needs exactly its frets; an open note needs none
+    const f = this.fretMask; if (c.open) return f === 0;
+    let hi = 0, cnt = 0; for (let l = 0; l < 5; l++) if (c.mask & (1 << l)) { hi = l; cnt++; }
+    if (cnt === 1) return (f & (1 << hi)) !== 0 && (f >> (hi + 1)) === 0;
+    return f === c.mask;
+  },
+  gtrNext(T, W) {                                          // the first unresolved chord whose window is open at T
+    const C = this.chart.chords;
+    for (let i = this.gi; i < C.length; i++) { const x = C[i]; if (x.t - T > W) break; if (x.hit !== HIT_NONE) continue; if (T - x.t > W) continue; return x; }
+    return null;
+  },
+  gtrStrum() {
+    if (this.state !== 'playing' || !this.guitar || this.songT < -0.2) return false;
+    const T = this.songT - (Settings.gtrLat || 0) / 1000, W = this.chart.win, c = this.gtrNext(T, W);
+    if (c && this.gtrMatch(c)) { this.gtrHit(c, T); return true; }
+    let near = !!c; if (!near) { const C = this.chart.chords; for (let i = this.gi; i < C.length && C[i].t - T < 0.4; i++) if (C[i].hit === HIT_NONE && Math.abs(C[i].t - T) < 0.4) { near = true; break; } }
+    if (near) this.gtrOver();
+    return false;
+  },
+  gtrOver() {                                              // strummed the wrong frets, or into a gap with notes close by
+    this.overstrums++; if (this.combo >= 8) this.emit({ k: 'break' }); this.combo = 0; this.mult = this.odActive ? 2 : 1; this.lastMult = this.mult; this.meterAdd(-2); this.emit({ k: 'over' });
+  },
+  gtrFret(mask) { this.fretMask = mask; },
+  gtrHit(c, T) {
+    c.hit = HIT_GOT; const perfect = Math.abs(T - c.t) < 0.05; this.hits++; this.combo++; if (this.combo > this.maxCombo) this.maxCombo = this.combo; if (perfect) this.perfects++;
+    this.mult = this.gtrMult(); let top = 0;
+    for (const n of c.notes) { n.hit = HIT_GOT; this.score += Math.round((50 + (perfect ? 10 : 0)) * this.mult); if (n.lane > top) top = n.lane; this.emit({ k: 'hit', lane: n.lane, x: n.lane - 2, gold: false, perfect, shot: false }); if (c.open) break; }
+    if (c.open) this.score += Math.round(150 * this.mult);
+    if (!this.odActive) this.od = Math.min(1, this.od + 0.006);
+    this.meterAdd(perfect ? 2.2 : 1.6); AudioEng.hit(top, perfect ? 'perfect' : 'norm'); this.gtrLast = c;
+    if (this.mult !== this.lastMult) { this.comboPop = 1; this.lastMult = this.mult; }
+  },
+  gtrMiss(c) {
+    c.hit = HIT_MISS; for (const n of c.notes) n.hit = HIT_MISS; this.misses++;
+    if (this.combo >= 8) this.emit({ k: 'break' }); this.combo = 0; this.mult = this.odActive ? 2 : 1; this.lastMult = this.mult; this.meterAdd(-4 * [0.5, 1, 1.25, 1.5][clamp(this.diff | 0, 0, 3)]);
+  },
+  gtrUpdate(dt) {
+    const C = this.chart.chords, W = this.chart.win, T = this.songT - (Settings.gtrLat || 0) / 1000;
+    // hammer-ons and taps need no strum: once the right frets are down at the note's time (and the run is unbroken) they play themselves
+    for (let i = this.gi; i < C.length && C[i].t - T < 0.04; i++) {
+      const c = C[i]; if (c.hit !== HIT_NONE || !(c.hopo || c.tap) || T < c.t - 0.04) continue;
+      const prev = i > 0 ? C[i - 1] : null, chain = c.tap || !prev || prev.hit === HIT_GOT;
+      if (chain && this.gtrMatch(c)) this.gtrHit(c, Math.abs(T - c.t) < 0.08 ? c.t : T);
+    }
+    while (this.gi < C.length && (C[this.gi].t + W < T || C[this.gi].hit !== HIT_NONE && C[this.gi].t < T - W)) { const c = C[this.gi++]; if (c.hit === HIT_NONE) this.gtrMiss(c); }
+    while (this.resolved < this.notes.length && this.notes[this.resolved].hit !== HIT_NONE && this.notes[this.resolved].t < T - W) this.resolved++;
+    this.gtrHolds(dt);
+  },
+  gtrHolds(dt) {
+    this.holding = false; const td = this.chart.tickDt, T = this.songT;
+    for (let i = this.holdIdx; i < this.holds.length; i++) {
+      const h = this.holds[i]; if (h.t > T) break;
+      if (h.done) { if (i === this.holdIdx) this.holdIdx++; continue; }
+      const held = (this.fretMask & (1 << h.lane)) !== 0, live = h.hit === HIT_GOT && !h.dropped;
+      if (live) { if (held) { h.on = true; h.lastIn = T; h.held += dt; this.holding = true; this.holdLane = h.lane; if (h.star && this.whammy > 0.2 && !this.odActive) this.od = Math.min(1, this.od + dt * 0.012 * this.whammy); } else { h.on = false; if (T < h.end - 0.15) { h.dropped = true; } } } else h.on = false;
+      while (h.tk < h.ticks && h.t + (h.tk + 1) * td <= T) { h.tk++; this.tickAll++; if (h.on) { this.tickGot++; this.score += Math.round(TICK_SCORE * this.gtrMult()); if (!this.odActive) this.od = Math.min(1, this.od + 0.003); this.emit({ k: 'tick', x: h.lane - 2, lane: h.lane }); } }
+      if (T >= h.end) { h.done = true; h.on = false; if (live && !h.dropped && h.held > (h.end - h.t) * 0.7) { this.streaks++; this.score += Math.round(40 * this.gtrMult()); } }
+    }
+    AudioEng.holdSet(this.holding, this.holdLane || 2);
+  },
+
   finish(failed) {
     if (this.state === 'results') return; if (this.watch && !this._wf) return;
     this.failed = failed; this.state = 'results';
@@ -1378,7 +1453,7 @@ const Game = {
     let wr = new Set(), wh = new Set(); for (const n of this.notes) if (n.wall && n.t < this.songT) { wr.add(n.t); if (n.hit === HIT_STRUCK) wh.add(n.t); } this.wallsClean = wr.size - wh.size + (this.cWallsClean || 0); this.walls = Math.max(this.walls, wr.size) + (this.cWalls || 0);
     this.result = { shotGems: this.shotGems, shotObs: this.shotObs, shots: this.shots, shields: this.shields, hurts: this.hurts, cornersOK: this.cornersOK, cornersAll: this.cornersAll, walls: this.walls, wallsClean: this.wallsClean, streaks: this.streaks, holdsTotal: (this.chart.holds || 0) + (this.cHolds || 0), tickPct: this.tickAll ? this.tickGot / this.tickAll : 1, score: this.score, ratio, grade: failed ? 'F' : gradeFor(ratio, acc), acc, maxCombo: this.maxCombo, hits: this.hits, misses: this.misses, golds: this.golds, perfects: this.perfects, struck: this.struck, total: this.chart.total + (this.cTotal || 0) };
     this.result.reward = Profile.reward(this.result, this); if (this.result.reward.ach.length) UI.toast('Achievement: ' + this.result.reward.ach.join(', '));
-    const key = this.track.key + ':' + this.diff + (this.saber ? ':' + this.weapon : this.drive ? ':drive' : '');
+    const key = this.track.key + ':' + this.diff + (this.saber ? ':' + this.weapon : this.drive ? ':drive' : this.guitar ? ':gtr' : '');
     if (!failed && !this.journey && !Queue.run) this.newBest = saveScore(key, { score: this.score, grade: this.result.grade, acc, combo: this.maxCombo });
     if (this.gRec && !failed && this.gOn && !this.watch) Ghosts.add(this.gKey, this.gRec, this.score, this.result.grade);
     AudioEng.stop(); if (!this.watch && typeof Spectate !== 'undefined') Spectate.onEnd();
@@ -1429,7 +1504,8 @@ const Game = {
       if (this.saber) {                                    // cubes are sliced by the renderer (it knows where they are); anything that flies past is a miss
         const grace = 1.1 / ((this.speed || 20) * SABER_K);
         while (this.resolved < this.notes.length && this.notes[this.resolved].t + grace <= this.songT) { const n = this.notes[this.resolved++]; if (n.hit === HIT_NONE) { if (n.type === NOTE_MINE) n.hit = HIT_PASS; else this.sabMiss(n); } }
-      } else {
+      } else if (this.guitar) { this.gtrUpdate(dt); }
+      else {
         while (this.resolved < this.notes.length && this.notes[this.resolved].t <= this.songT) { this.resolve(this.notes[this.resolved]); this.resolved++; }
         this.updateHolds(dt);
       }
@@ -5055,6 +5131,257 @@ const BS = {
   }
 };
 
+// ===== CLONE HERO: read community charts (.chart / .mid / song.ini, in a folder, a .zip or a .sng) and turn them into this game's notes =====
+// A Clone Hero chart is a hand-written 5-fret guitar part: lanes 0-4 are green, red, yellow, blue, orange. Everything is stored as plain numbers so it survives IndexedDB:
+//   ch = { v, name, artist, charter, parts: { guitar|bass|rhythm: [Easy, Medium, Hard, Expert] } }   each difficulty = { n: [[t, mask, sustain, flags, star]], sp: [[t0, t1]] }
+//   mask = bit per fret (1 green ... 16 orange), flags: 1 = hammer-on/pull-off, 2 = tap, 4 = open note (mask 0), star = star power phrase number (1-based).
+// The same data feeds the normal modes (one lane per chord, the ship flies through) and the Guitar mode (hold frets, strum).
+
+const CH_DIFFS = ['Easy', 'Medium', 'Hard', 'Expert'];
+const CH_PART_NAMES = { guitar: 'Lead guitar', bass: 'Bass', rhythm: 'Rhythm' };
+const CH_AUDIO_EXT = ['ogg', 'opus', 'mp3', 'wav', 'flac', 'm4a'];
+const CH_STEMS = ['song', 'guitar', 'rhythm', 'bass', 'drums', 'drums_1', 'drums_2', 'drums_3', 'drums_4', 'vocals', 'vocals_1', 'vocals_2', 'keys'];
+const CH_MID_BASE = [60, 72, 84, 96];
+
+function chIni(txt) {
+  const o = {};
+  for (const line of String(txt || '').replace(/^﻿/, '').split(/\r?\n/)) { const m = line.match(/^\s*([^=;\[#][^=]*?)\s*=\s*(.*?)\s*$/); if (m) o[m[1].toLowerCase()] = m[2]; }
+  return o;
+}
+
+// ---------- tempo map: ticks -> seconds ----------
+function chTempoMap(tempos, res) {                                    // tempos: [[tick, secondsPerQuarter]]
+  const T = tempos.slice().sort((a, b) => a[0] - b[0]); if (!T.length || T[0][0] > 0) T.unshift([0, 0.5]);
+  const seg = []; let sec = 0;
+  for (let i = 0; i < T.length; i++) { if (i > 0) sec += (T[i][0] - T[i - 1][0]) / res * T[i - 1][1]; seg.push({ tick: T[i][0], sec, spq: T[i][1] }); }
+  return (tick) => { let lo = 0, hi = seg.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (seg[m].tick <= tick) lo = m; else hi = m - 1; } const s = seg[lo]; return s.sec + (tick - s.tick) / res * s.spq; };
+}
+
+// ---------- .chart (text) ----------
+function chParseChart(txt) {
+  const secs = {}, song = {}; let cur = null, curName = '';
+  for (const raw of String(txt).replace(/^﻿/, '').split(/\r?\n/)) {
+    const line = raw.trim(); if (!line) continue;
+    if (line[0] === '[') { curName = line.slice(1, line.indexOf(']')); cur = secs[curName] = []; continue; }
+    if (line === '{' || line === '}' || !cur) continue;
+    const eq = line.indexOf('='); if (eq < 0) continue;
+    if (curName === 'Song') { song[line.slice(0, eq).trim().toLowerCase()] = line.slice(eq + 1).trim().replace(/^"|"$/g, ''); continue; }
+    const tick = +line.slice(0, eq); if (!(tick >= 0)) continue; const rest = line.slice(eq + 1).trim().split(/\s+/); cur.push([tick, rest[0], rest.slice(1)]);
+  }
+  const res = Math.max(1, +song.resolution || 192), tempos = [];
+  for (const e of secs.SyncTrack || []) if (e[1] === 'B') { const bpm = (+e[2][0]) / 1000; if (bpm > 0) tempos.push([e[0], 60 / bpm]); }
+  const parts = {}, SUF = { Single: 'guitar', DoubleBass: 'bass', DoubleRhythm: 'rhythm' };
+  CH_DIFFS.forEach((dn, di) => {
+    for (const suf in SUF) {
+      const ev = secs[dn + suf]; if (!ev || !ev.length) continue;
+      const raw = { gems: [], force: new Set(), taps: new Set(), sp: [] };
+      for (const e of ev) {
+        if (e[1] === 'N') { const l = +e[2][0], len = +e[2][1] || 0; if (l >= 0 && l <= 4) raw.gems.push({ tick: e[0], lane: l, len }); else if (l === 7) raw.gems.push({ tick: e[0], lane: 7, len }); else if (l === 5) raw.force.add(e[0]); else if (l === 6) raw.taps.add(e[0]); }
+        else if (e[1] === 'S' && +e[2][0] === 2) raw.sp.push([e[0], e[0] + (+e[2][1] || 0)]);
+      }
+      if (raw.gems.length) { const P = parts[SUF[suf]] || (parts[SUF[suf]] = [null, null, null, null]); P[di] = raw; }
+    }
+  });
+  return { res, tempos, parts, kind: 'chart', song };
+}
+
+// ---------- .mid ----------
+function chParseMid(u8, ini) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength); let p = 0;
+  const str4 = (o) => String.fromCharCode(u8[o], u8[o + 1], u8[o + 2], u8[o + 3]);
+  if (str4(0) !== 'MThd') throw new Error('Not a MIDI file');
+  const ntr = dv.getUint16(10), div = dv.getUint16(12); if (div & 0x8000) throw new Error('Unsupported MIDI timing'); const res = div; p = 8 + dv.getUint32(4);
+  const tempos = [], tracks = {};
+  for (let k = 0; k < ntr && p + 8 <= u8.length; k++) {
+    if (str4(p) !== 'MTrk') break; const len = dv.getUint32(p + 4); let q = p + 8; const end = Math.min(u8.length, q + len); p = end;
+    let tick = 0, run = 0, name = '', enh = false; const open = new Map(), notes = [];
+    const vlq = () => { let v = 0, b; do { b = u8[q++]; v = (v << 7) | (b & 127); } while ((b & 128) && q < end); return v; };
+    while (q < end) {
+      tick += vlq(); let st = u8[q]; if (st & 128) { q++; run = st; } else st = run;
+      if (st === 0xFF) { const type = u8[q++], l = vlq(); if (type === 0x51 && l === 3) tempos.push([tick, ((u8[q] << 16) | (u8[q + 1] << 8) | u8[q + 2]) / 1e6]); else if (type === 0x03) name = new TextDecoder().decode(u8.subarray(q, q + l)); else if (type === 0x01 && /ENHANCED_OPENS/i.test(new TextDecoder().decode(u8.subarray(q, q + l)))) enh = true; q += l; }
+      else if (st === 0xF0 || st === 0xF7) { q += vlq(); }
+      else { const hi = st & 0xF0, a = u8[q++], b = (hi === 0xC0 || hi === 0xD0) ? 0 : u8[q++];
+        if (hi === 0x90 && b > 0) { if (!open.has(a)) open.set(a, tick); }
+        else if (hi === 0x80 || (hi === 0x90 && b === 0)) { const s = open.get(a); if (s !== undefined) { notes.push({ note: a, tick: s, len: tick - s }); open.delete(a); } } }
+    }
+    for (const [nn, s] of open) notes.push({ note: nn, tick: s, len: 0 });
+    const key = /PART GUITAR$/i.test(name) && !/COOP|GHL/i.test(name) ? 'guitar' : /^PART BASS$/i.test(name) ? 'bass' : /^PART RHYTHM$/i.test(name) ? 'rhythm' : /^T1 GEMS$/i.test(name) ? 'guitar' : null;
+    if (key && !tracks[key]) tracks[key] = { notes, enh };
+  }
+  const spNote = ini && +ini.multiplier_note === 103 ? 103 : 116, parts = {};
+  for (const key in tracks) {
+    const T = tracks[key]; const P = [null, null, null, null];
+    CH_MID_BASE.forEach((base, di) => {
+      const raw = { gems: [], force: [], taps: new Set(), sp: [] };
+      for (const n of T.notes) {
+        const d = n.note - base;
+        if (d >= 0 && d <= 4) raw.gems.push({ tick: n.tick, lane: d, len: n.len });
+        else if (d === -1 && T.enh) raw.gems.push({ tick: n.tick, lane: 7, len: n.len });
+        else if (d === 5) raw.force.push([n.tick, n.tick + Math.max(1, n.len), 1]);
+        else if (d === 6) raw.force.push([n.tick, n.tick + Math.max(1, n.len), 0]);
+      }
+      for (const n of T.notes) if (n.note === spNote) raw.sp.push([n.tick, n.tick + n.len]);
+      if (raw.gems.length) P[di] = raw;
+    });
+    if (P.some(Boolean)) parts[key] = P;
+  }
+  return { res, tempos, parts, kind: 'mid' };
+}
+
+// ---------- raw notes -> playable chords (the rules Clone Hero uses for chords, hammer-ons and sustains) ----------
+function chBuild(raw, tm, res, isMid, ini, delay) {
+  const gems = raw.gems.slice().sort((a, b) => a.tick - b.tick || a.lane - b.lane), snap = isMid ? Math.max(1, Math.round(res / 64)) : 0, chords = [];
+  for (const g of gems) { const c = chords[chords.length - 1]; if (c && g.tick - c.tick <= snap) { if (g.lane === 7) c.open = true; else c.mask |= 1 << g.lane; c.len = Math.max(c.len, g.len); } else chords.push({ tick: g.tick, mask: g.lane === 7 ? 0 : 1 << g.lane, open: g.lane === 7, len: g.len }); }
+  const thr = isMid ? (ini && +ini.hopo_frequency > 0 ? +ini.hopo_frequency : (ini && /^true$/i.test(ini.eighthnote_hopo || '') ? res / 2 : res * 170 / 480)) : res * 65 / 192, cut = res / 12, out = [];
+  const pop = (m) => { let c = 0; while (m) { c += m & 1; m >>= 1; } return c; };
+  const inForce = (tick) => { if (isMid) { for (const f of raw.force) if (tick >= f[0] && tick < f[1]) return f[2] ? 1 : 0; return -1; } return raw.force.has(tick) ? 2 : -1; };
+  let prev = null;
+  for (let i = 0; i < chords.length; i++) {
+    const c = chords[i]; let hopo = prev && pop(c.mask) === 1 && !c.open && c.tick - prev.tick <= thr && c.mask !== prev.mask && !(prev.open);
+    const f = inForce(c.tick); if (f === 2) hopo = !hopo; else if (f === 1) hopo = !!prev; else if (f === 0) hopo = false;
+    const t = tm(c.tick) + (delay || 0), sus = c.len > cut ? Math.max(0, tm(c.tick + c.len) - tm(c.tick)) : 0, tap = raw.taps.has(c.tick);
+    let star = 0; for (let k = 0; k < raw.sp.length; k++) if (c.tick >= raw.sp[k][0] && c.tick < raw.sp[k][1]) { star = k + 1; break; }
+    out.push([Math.round(t * 1000) / 1000, c.mask, Math.round(sus * 1000) / 1000, (hopo || tap ? 1 : 0) | (tap ? 2 : 0) | (c.open ? 4 : 0), star]); prev = c;
+  }
+  return { n: out, sp: raw.sp.map(s => [Math.round((tm(s[0]) + (delay || 0)) * 1000) / 1000, Math.round((tm(s[1]) + (delay || 0)) * 1000) / 1000]) };
+}
+
+function chFromParsed(P, ini, name) {
+  const tm = chTempoMap(P.tempos, P.res), delay = ((+ini.delay || 0) / 1000) + (+ini.chart_offset || 0), parts = {}; let total = 0;
+  for (const key in P.parts) { const arr = P.parts[key].map(raw => raw ? chBuild(raw, tm, P.res, P.kind === 'mid', ini, delay) : null); if (arr.some(x => x && x.n.length >= 4)) { parts[key] = arr; total += arr.reduce((s, x) => s + (x ? x.n.length : 0), 0); } }
+  if (!total) throw new Error('No guitar, bass or rhythm part found in this chart');
+  const sg = P.song || {};
+  return { v: 1, name: ini.name || sg.name || name || 'Song', artist: ini.artist || sg.artist || '', charter: ini.charter || ini.frets || sg.charter || '', parts };
+}
+
+// ---------- sources: a zip, a folder of files, or a .sng, all read through the same four calls ----------
+function chFileSource(files) {                                         // File objects (a folder pick, a drop or loose files)
+  const m = new Map(); for (const f of files) m.set(f.name.toLowerCase(), f);
+  return { has: (n) => m.has(n.toLowerCase()), async read(n) { const f = m.get(n.toLowerCase()); if (!f) throw new Error('Missing ' + n); return new Uint8Array(await f.arrayBuffer()); }, async text(n) { return new TextDecoder().decode(await this.read(n)).replace(/^﻿/, ''); } };
+}
+function chSngSource(buf) {                                            // the single-file .sng container: a small header, a metadata table, a file index and XOR-masked file bytes (no compression)
+  const u8 = new Uint8Array(buf), dv = new DataView(buf), td = new TextDecoder();
+  if (td.decode(u8.subarray(0, 6)) !== 'SNGPKG') throw new Error('Not an SNG file');
+  const mask = u8.subarray(10, 26); let p = 26;
+  const u64 = (o) => Number(dv.getBigUint64(o, true));
+  const metaLen = u64(p); const metaStart = p + 8, metaCount = u64(metaStart), meta = {}; let q = metaStart + 8;
+  for (let i = 0; i < metaCount; i++) { const kl = dv.getInt32(q, true); q += 4; const k = td.decode(u8.subarray(q, q + kl)); q += kl; const vl = dv.getInt32(q, true); q += 4; const v = td.decode(u8.subarray(q, q + vl)); q += vl; meta[k.toLowerCase()] = v; }
+  p = metaStart + metaLen; const idxLen = u64(p), idxStart = p + 8, count = u64(idxStart), files = new Map(); q = idxStart + 8;
+  for (let i = 0; i < count; i++) { const nl = u8[q++], name = td.decode(u8.subarray(q, q + nl)); q += nl; const len = u64(q); q += 8; const off = u64(q); q += 8; files.set(name.toLowerCase(), { len, off }); }
+  const out = {
+    meta, has: (n) => files.has(n.toLowerCase()),
+    async read(n) { const f = files.get(n.toLowerCase()); if (!f) throw new Error('Missing ' + n); const d = u8.slice(f.off, f.off + f.len); for (let i = 0; i < d.length; i++) d[i] ^= mask[i & 15] ^ (i & 255); return d; },
+    async text(n) { return td.decode(await this.read(n)).replace(/^﻿/, ''); }
+  };
+  if (files.has('song.ini') === false) out.iniFromMeta = true;
+  return out;
+}
+
+const CH = {
+  // read one song from a source: the chart data, the audio stems (as Blobs) and the name
+  async readSource(src, fallbackName, metaIni) {
+    let ini = {}; if (src.has('song.ini')) { try { ini = chIni(await src.text('song.ini')); } catch (e) {} } else if (metaIni) ini = metaIni;
+    let P = null;
+    if (src.has('notes.mid')) { try { P = chParseMid(await src.read('notes.mid'), ini); } catch (e) { P = null; } }
+    if (!P && src.has('notes.chart')) P = chParseChart(await src.text('notes.chart'));
+    if (!P) throw new Error('No notes.chart or notes.mid in this song');
+    const ch = chFromParsed(P, ini, fallbackName), stems = [];
+    for (const base of CH_STEMS) for (const ext of CH_AUDIO_EXT) { const n = base + '.' + ext; if (src.has(n)) { const d = await src.read(n); stems.push({ n, blob: new Blob([d], { type: ext === 'mp3' ? 'audio/mpeg' : ext === 'wav' ? 'audio/wav' : ext === 'flac' ? 'audio/flac' : ext === 'm4a' ? 'audio/mp4' : 'audio/ogg' }) }); break; } }
+    if (!stems.length) throw new Error('No audio found (song.ogg / song.mp3 ...)');
+    return { ch, stems };
+  },
+  // a zip or a .sng picked as one file
+  async fromBlob(file) {
+    const buf = await file.arrayBuffer(), nm = file.name.replace(/\.[^.]+$/, '');
+    if (/\.sng$/i.test(file.name)) { const s = chSngSource(buf); return this.readSource(s, nm, s.meta); }
+    return this.readSource(openZip(buf), nm);
+  },
+  // loose files and folders: group by directory so a dropped "Songs" folder brings in every song inside it
+  groups(files) {
+    const g = new Map();
+    for (const f of files) { const path = f.webkitRelativePath || '', dir = path.lastIndexOf('/') >= 0 ? path.slice(0, path.lastIndexOf('/')) : ''; if (!g.has(dir)) g.set(dir, []); g.get(dir).push(f); }
+    return Array.from(g.entries()).filter(([d, fs]) => fs.some(f => /^notes\.(chart|mid)$/i.test(f.name))).map(([d, fs]) => ({ dir: d, files: fs }));
+  },
+  looksLike(files) { return files.some(f => /\.(sng|chart|mid|ini)$/i.test(f.name) || (/\.zip$/i.test(f.name))); },
+  // decode every audio stem and mix them down to one buffer (Clone Hero plays all stems together)
+  async mixStems(stems) {
+    AudioEng.init(); const bufs = []; let len = 0, sr = 0;
+    const first = await AudioEng.decode(await stems[0].blob.arrayBuffer()); sr = first.sampleRate; len = first.length;
+    const meta = [{ n: stems[0].n, len: first.length }];
+    let out = null;
+    const add = (b) => {
+      if (!out) out = AudioEng.ctx.createBuffer(2, Math.max(len, b.length), sr); if (b.length > out.length) { const o2 = AudioEng.ctx.createBuffer(2, b.length, sr); o2.getChannelData(0).set(out.getChannelData(0)); o2.getChannelData(1).set(out.getChannelData(1)); out = o2; }
+      const L = out.getChannelData(0), R2 = out.getChannelData(1), a0 = b.getChannelData(0), a1 = b.numberOfChannels > 1 ? b.getChannelData(1) : a0; for (let i = 0; i < b.length; i++) { L[i] += a0[i]; R2[i] += a1[i]; }
+    };
+    add(first);
+    for (let i = 1; i < stems.length; i++) { try { const b = await AudioEng.decode(await stems[i].blob.arrayBuffer()); add(b); } catch (e) {} await tick(); }
+    let pk = 0; const L = out.getChannelData(0), R2 = out.getChannelData(1); for (let i = 0; i < out.length; i += 7) { const v = Math.max(Math.abs(L[i]), Math.abs(R2[i])); if (v > pk) pk = v; }
+    if (pk > 0.98) { const g = 0.98 / pk; for (let i = 0; i < out.length; i++) { L[i] *= g; R2[i] *= g; } }
+    return out;
+  },
+  // pick the part and difficulty to play: your difficulty if the chart has it, otherwise the nearest one that exists
+  pick(ch, diffIdx, part) {
+    const order = [part || Settings.chPart || 'guitar', 'guitar', 'bass', 'rhythm'];
+    for (const pk of order) {
+      const P = ch.parts[pk]; if (!P) continue;
+      for (const di of [diffIdx, diffIdx - 1, diffIdx + 1, diffIdx - 2, diffIdx + 2, diffIdx - 3, diffIdx + 3]) if (di >= 0 && di <= 3 && P[di] && P[di].n.length >= 4) return { d: P[di], part: pk, diff: di };
+    }
+    return null;
+  },
+  partsOf(ch) { return Object.keys(ch.parts); },
+  // the levels this chart really has, e.g. "Easy Medium Hard Expert"
+  levels(ch) { const s = new Set(); for (const k in ch.parts) ch.parts[k].forEach((x, i) => { if (x && x.n.length >= 4) s.add(i); }); return Array.from(s).sort().map(i => CH_DIFFS[i]); }
+};
+
+// ---------- conversion 1: the chart as ship notes (normal modes): one gem per chord, sustains become hold streaks ----------
+function generateCHChart(a, diffIdx, seedKey, ch) {
+  const D = DIFFICULTIES[diffIdx], pk = CH.pick(ch, diffIdx), src = pk.d, minGap = Math.max(0.09, D.gap * 0.6), notes = [], holdList = [], phr = {};
+  let prevLane = 2, prevT = -10, holdEnd = -10;
+  for (const r of src.n) {
+    const t = r[0], mask = r[1], sus = r[2], star = r[4]; if (t < 0.5 || t > a.dur - 0.5 || t - prevT < minGap || t < holdEnd) continue;
+    let tgt = 2; if (mask) { let best = 9; for (let l = 0; l < 5; l++) if (mask & (1 << l)) { const d = Math.abs(l - prevLane); if (d < best) { best = d; tgt = l; } } }
+    const gap = t - prevT, maxMove = Math.max(1, Math.floor(Math.max(0, gap) * MAX_LANE_SPEED)), lane = clamp(prevLane + clamp(tgt - prevLane, -maxMove, maxMove), 0, LANES - 1);
+    let n;
+    if (sus >= 0.55 && sus <= 12) {
+      const m = Math.floor(sus / HOLD_STEP) + 1, pts = new Float32Array(m).fill(lane);
+      n = { t, lane, type: NOTE_HOLD, s: 0.8, small: false, hit: 0, end: t + (m - 1) * HOLD_STEP, pts, tk: 0, ticks: 0, held: 0, lastIn: -9, dropped: false, on: false, done: false }; holdList.push(n); holdEnd = n.end + 0.25; prevT = n.end;
+    } else { const on = nearestOnset(a, t); n = { t, lane, type: (on && on.s > 0.92 && on.lo > 0.5) ? NOTE_GOLD : NOTE_COLLECT, s: on ? on.s : 0.5, small: false, hit: 0 }; prevT = t; }
+    prevLane = lane; notes.push(n);
+    if (star) { n.star = star; (phr[star] || (phr[star] = [])).push(n); }
+  }
+  const c = finalizeChart(notes, holdList, a, diffIdx, 0); c.chDiff = pk.diff; c.chPart = pk.part; c.chPhr = Object.keys(phr).map(k => phr[k]).filter(p => p.length >= 2); return c;
+}
+
+// ---------- conversion 2: the Guitar mode: every fret of a chord is its own gem, linked into a chord you must strum ----------
+const GTR_WINDOW = [0.14, 0.125, 0.11, 0.1];                          // timing window (seconds, each side) per difficulty
+function generateGuitarChart(a, diffIdx, seedKey, ch, bs) {
+  let list = [], diff = diffIdx, partName = '';
+  if (ch) { const pk = CH.pick(ch, diffIdx); list = pk.d.n; diff = pk.diff; partName = CH_PART_NAMES[pk.part]; }
+  else {                                                              // any song can be played on the guitar: the game's own notes become frets
+    const base = generateChart(a, diffIdx, seedKey, bs); let id = 0;
+    for (const n of base.notes) { if (n.type === NOTE_OBSTACLE) continue; if (n.t < 1.5) continue; const lane = n.type === NOTE_HOLD ? Math.round(n.pts[0]) : n.lane, sus = n.type === NOTE_HOLD ? n.end - n.t : 0; list.push([n.t, 1 << clamp(lane, 0, 4), sus, 0, 0]); }
+    list = list.filter((r, i) => i === 0 || r[0] - list[i - 1][0] > 0.12);
+    for (let i = 1; i < list.length; i++) if (list[i][2] === 0 && list[i][0] - list[i - 1][0] < 0.2 && list[i][1] !== list[i - 1][1]) list[i][3] = 1;
+  }
+  const notes = [], chords = [], phr = {}; let mx = 0, combo = 0;
+  for (const r of list) {
+    const [t, mask, sus, fl, star] = r; if (t < 0.1 || t > a.dur - 0.3) continue;
+    const C = { t, mask, open: !!(fl & 4), hopo: !!(fl & 1) && !(fl & 2), tap: !!(fl & 2), notes: [], hit: HIT_NONE, sus, star };
+    const lanes = C.open ? [0, 1, 2, 3, 4] : [0, 1, 2, 3, 4].filter(l => mask & (1 << l));
+    for (const l of lanes) {
+      let n;
+      if (sus >= 0.2 && !C.open) { const m = Math.floor(sus / HOLD_STEP) + 1, pts = new Float32Array(m).fill(l); n = { t, lane: l, type: NOTE_HOLD, s: 0.8, small: false, hit: 0, end: t + (m - 1) * HOLD_STEP, pts, tk: 0, ticks: 0, held: 0, lastIn: -9, dropped: false, on: false, done: false }; }
+      else n = { t, lane: l, type: NOTE_COLLECT, s: 0.6, small: false, hit: 0 };
+      n.gtr = 1; n.chord = C; n.open = C.open; n.hopo = C.hopo || C.tap; n.tap = C.tap; if (star) n.star = star; C.notes.push(n); notes.push(n);
+      if (star) (phr[star] || (phr[star] = [])).push(n);
+    }
+    chords.push(C); const mult = Math.min(4, 1 + Math.floor(combo / 10)); mx += (C.open ? 50 : lanes.length * 50) * mult * 1.0; if (sus >= 0.2) mx += Math.round(sus * 25) * mult; combo++;
+  }
+  notes.sort((x, y) => x.t - y.t || x.lane - y.lane);
+  const holds = notes.filter(n => n.type === NOTE_HOLD), tickDt = 0.12; for (const h of holds) h.ticks = Math.max(1, Math.floor((h.end - h.t) / tickDt));
+  return { notes, chords, total: chords.length, golds: 0, holds: holds.length, tickDt, obstacles: 0, maxScore: Math.round(mx * 1.1) + 1, diff: diffIdx, gtr: true, chDiff: diff, chPart: partName, chPhr: Object.keys(phr).map(k => phr[k]).filter(p => p.length >= 2), win: GTR_WINDOW[clamp(diffIdx, 0, 3)] };
+}
+
 // ===== LIBRARY: songs, persistence (IndexedDB), background analysis with cache =====
 const IDB = {
   db: null,
@@ -5089,7 +5416,7 @@ const Library = {
   },
   async loadSaved() {
     const saved = await IDB.all('tracks');
-    for (const t of saved) if (!this.items.some(i => i.key === t.key)) this.items.push({ key: t.key, name: t.name, sub: t.sub, bs: t.bs, blob: t.blob, status: 'queued', progress: 0 });
+    for (const t of saved) if (!this.items.some(i => i.key === t.key)) this.items.push({ key: t.key, name: t.name, sub: t.sub, bs: t.bs, blob: t.blob, ch: t.ch, stems: t.stems, status: 'queued', progress: 0 });
     this.changed(); this.scan();
   },
   async addFiles(files) {
@@ -5107,6 +5434,28 @@ const Library = {
     this.changed(); this.scan();
     return added;
   },
+  // Clone Hero songs: a .zip / .sng, or a picked folder (one song per directory). Notes are read now; the audio stems are mixed to one track when played
+  async addCH(files) {
+    files = Array.from(files); const jobs = [];
+    for (const f of files) if (/\.(zip|sng)$/i.test(f.name)) jobs.push({ nm: f.name.replace(/\.[^.]+$/, ''), run: () => CH.fromBlob(f) });
+    for (const g of CH.groups(files)) { const src = chFileSource(g.files); jobs.push({ nm: g.dir.split('/').pop() || 'Song', run: () => CH.readSource(src, g.dir.split('/').pop() || 'Song') }); }
+    let ok = 0, bad = 0, first = -1;
+    for (const j of jobs) {
+      try {
+        UI.toast('Reading ' + j.nm + ' ...'); await tick();
+        const r = await j.run(), ch = r.ch, name = ch.name || j.nm, key = 'ch' + hashStr(name + '|' + (ch.artist || '') + '|' + r.stems.reduce((a, s) => a + s.blob.size, 0));
+        if (this.items.some(i => i.key === key)) continue;
+        if (!CH.pick(ch, 3, 'guitar')) throw new Error('no guitar notes');
+        const sub = (ch.artist ? ch.artist + '  ·  ' : '') + 'Clone Hero ' + CH.levels(ch).join(' / ');
+        this.items.push({ key, name, sub, ch, stems: r.stems, status: 'queued', progress: 0 });
+        if (first < 0) first = this.items.length - 1;
+        IDB.put('tracks', { key, name, sub, ch, stems: r.stems, size: r.stems.reduce((a, s) => a + s.blob.size, 0) }); ok++;
+      } catch (e) { bad++; console.warn('CH import', j.nm, e); UI.toast('Could not read ' + j.nm + ': ' + ((e && e.message) || 'bad chart')); await new Promise(r => setTimeout(r, 1200)); }
+    }
+    if (first >= 0) this.selected = first;
+    this.changed(); this.scan(); return { ok, bad };
+  },
+  async decodeItem(it) { return it.stems ? CH.mixStems(it.stems) : AudioEng.decode(await it.blob.arrayBuffer()); },
   // a plain list of the online songs you've added (BeatSaver ids): save it, load it later and every song is fetched again
   exportList() {
     const list = Object.keys(Settings.favs).filter(k => /^bs/.test(k)).map(k => ({ id: k.slice(2), name: Settings.favs[k] }));
@@ -5159,7 +5508,7 @@ const Library = {
             const cached = await IDB.one('analysis', it.key);
             if (cached && cached.v === A_VERSION) { it.analysis = cached.a; it.progress = 1; }
             else {
-              const buf = await AudioEng.decode(await it.blob.arrayBuffer());
+              const buf = await this.decodeItem(it);
               it.analysis = await analyzeTrack(buf, (p) => { it.progress = p; this.changed(); });
               IDB.put('analysis', { key: it.key, v: A_VERSION, a: it.analysis });
             }
@@ -5176,10 +5525,10 @@ const Library = {
   async getBuffer(it) {
     if (it.demo) { if (it.buf) return it.buf; const { samples, sr } = await generateDemoSamples(null, it.demoV); return it.buf = AudioEng.fromSamples(samples, sr); }
     if (this.buffers.has(it.key)) return this.buffers.get(it.key);
-    const buf = await AudioEng.decode(await it.blob.arrayBuffer());
+    const buf = await this.decodeItem(it);
     this.buffers.clear(); this.buffers.set(it.key, buf); return buf;
   },
-  best(it, diff) { return it ? Scores[it.key + ':' + diff + (Settings.mode === 'saber' ? ':sabers' : Settings.mode === 'punch' ? ':fists' : Settings.mode === 'drive' ? ':drive' : '')] : null; }
+  best(it, diff) { return it ? Scores[it.key + ':' + diff + (Settings.mode === 'saber' ? ':sabers' : Settings.mode === 'punch' ? ':fists' : Settings.mode === 'drive' ? ':drive' : Settings.mode === 'guitar' ? ':gtr' : '')] : null; }
 };
 
 // ---- set queue: line up several songs for one long run. Scores add up across the set; each song hands over to the next ----
@@ -5481,9 +5830,138 @@ const Input = {
 };
 const _iv = new THREE.Vector3(), _id = new THREE.Vector3();
 
+// ===== GUITAR: a Guitar Hero / Rock Band guitar (or keyboard, or touch) as the controller for Guitar mode =====
+// Frets, strum, whammy and star power are read from the Gamepad API every frame and turned into events (gfret / gstrum / overdrive). A short "press each fret" wizard
+// learns any pad (including guitars that report odd button numbers), and the Xbox 360 guitar works out of the box (frets A B Y X LB, strum on the d-pad, Start, Back).
+// In menus the guitar drives the UI too: strum up / down scrolls, green starts, red goes back, Start also starts.
+const GTR_COL = [[0.1, 1, 0.25], [1, 0.1, 0.15], [1, 0.88, 0.1], [0.15, 0.4, 1], [1, 0.5, 0.05]];
+const GTR_CSS = ['#27ff4a', '#ff2a3a', '#ffe11a', '#2a6bff', '#ff8512'];
+const GTR_STEPS = [
+  { k: 'f0', t: 'Hold the GREEN fret' }, { k: 'f1', t: 'Hold the RED fret' }, { k: 'f2', t: 'Hold the YELLOW fret' }, { k: 'f3', t: 'Hold the BLUE fret' }, { k: 'f4', t: 'Hold the ORANGE fret' },
+  { k: 'sd', t: 'Strum DOWN' }, { k: 'su', t: 'Strum UP', opt: true }, { k: 'sp', t: 'Star power: tilt the neck up (or press a button)', opt: true }, { k: 'wh', t: 'Wiggle the WHAMMY bar', opt: true }, { k: 'st', t: 'Press START (pause / start)', opt: true }
+];
+const XBOX_GUITAR = { id: '', f: [{ t: 'b', i: 0 }, { t: 'b', i: 1 }, { t: 'b', i: 3 }, { t: 'b', i: 2 }, { t: 'b', i: 4 }], sd: { t: 'b', i: 13 }, su: { t: 'b', i: 12 }, sp: { t: 'b', i: 8 }, st: { t: 'b', i: 9 }, wh: null, auto: true };
+const Gtr = {
+  map: null, padId: '', mask: 0, padMask: 0, keyMask: 0, touchMask: 0, whammy: 0, prevS: { su: 0, sd: 0, sp: 0, st: 0 }, rest: null, wiz: null, lastStrum: 0, flash: 0, status: 'No guitar found: plug in the receiver and strum', n: 0, tp: new Map(), live: { b: [], a: [] },
+  init() {
+    try { const m = JSON.parse(Store.get('dmtsurf.gtrmap') || 'null'); if (m && m.f && m.f.length === 5) this.map = m; } catch (e) {}
+    addEventListener('gamepadconnected', (e) => { try { UI.toast('Controller found: ' + String(e.gamepad.id).slice(0, 40)); } catch (x) {} });
+    addEventListener('keydown', (e) => this.key(e, true), true); addEventListener('keyup', (e) => this.key(e, false), true);
+    addEventListener('pointerdown', (e) => this.touch(e, true), true); addEventListener('pointerup', (e) => this.touch(e, false), true); addEventListener('pointercancel', (e) => this.touch(e, false), true);
+  },
+  save() { Store.set('dmtsurf.gtrmap', JSON.stringify(this.map)); },
+  pads() { let l = []; try { l = Array.from(navigator.getGamepads ? navigator.getGamepads() : []).filter((p) => p && p.connected); } catch (e) {} return l.filter((p) => !/oculus|quest|xr-standard|hand tracking/i.test(p.id) && (p.buttons.length >= 5 || p.axes.length >= 2)); },
+  pad() { const l = this.pads(); if (this.map && this.map.id) { const p = l.find((x) => x.id === this.map.id); if (p) return p; } return l.find((p) => /guitar|rock ?band|harmonix|xbox|xinput|045e|1430|12ba|1bad/i.test(p.id)) || l[0] || null; },
+  curMap(p) { if (this.map && (!this.map.id || !p || this.map.id === p.id)) return this.map; return p && p.mapping === 'standard' ? XBOX_GUITAR : (this.map || null); },
+  ctl(p, c) { if (!c || !p) return 0; if (c.t === 'b') { const b = p.buttons[c.i]; return b && (b.pressed || b.value > 0.5) ? 1 : 0; } const v = p.axes[c.i]; return v !== undefined && (v - c.rest) * c.s > 0.5 ? 1 : 0; },
+  // frame poll: read the pad, merge keyboard + touch, emit events
+  poll(dt) {
+    const p = this.pad(), m = this.curMap(p); let pm = 0;
+    if (p && m) {
+      this.padId = p.id; this.status = (m.auto ? 'Xbox 360 guitar layout' : 'Your saved layout') + '  ·  ' + String(p.id).replace(/\(.*?\)/g, '').slice(0, 34);
+      for (let i = 0; i < 5; i++) if (this.ctl(p, m.f[i])) pm |= 1 << i;
+      const s = { su: this.ctl(p, m.su), sd: this.ctl(p, m.sd), sp: this.ctl(p, m.sp), st: this.ctl(p, m.st) };
+      this.padMask = pm; this.merge();
+      if ((s.su && !this.prevS.su) || (s.sd && !this.prevS.sd)) this.strum();
+      if (s.sp && !this.prevS.sp) Input.push('overdrive');
+      if (s.st && !this.prevS.st) Input.push(Game.state === 'playing' ? 'pause' : 'ok');
+      this.prevS = s;
+      if (m.wh) { const v = p.axes[m.wh.i]; this.whammy = v === undefined ? 0 : clamp((v - m.wh.rest) * m.wh.s / Math.max(0.4, m.wh.span || 1), 0, 1); } else this.whammy = 0;
+      this.live.b = p.buttons.map((b) => b.pressed || b.value > 0.5); this.live.a = Array.from(p.axes);
+      if (this.wiz) this.learnTick(p);
+      if (Game.state === 'playing' && Game.guitar) Game.whammy = this.whammy;
+    } else { this.padMask = 0; this.padId = ''; this.status = 'No guitar found: plug in the receiver and strum'; this.merge(); this.live = { b: [], a: [] }; }
+    this.flash = Math.max(0, this.flash - dt * 6);
+    if (UI.screen === 'gtr') UI.dirty = true;
+  },
+  merge() {
+    const m = this.padMask | this.keyMask | this.touchMask;
+    if (m !== this.mask) {
+      const added = m & ~this.mask; this.mask = m; Input.push('gfret', { mask: m });
+      if (Game.state !== 'playing' && !this.wiz && UI.screen !== 'gtr') { if (added & 1) Input.push('ok'); else if (added & 2) Input.push('back'); }          // green starts, red goes back (menus)
+    }
+  },
+  strum() {
+    this.flash = 1; const now = performance.now(); if (now - this.lastStrum < 25) return; this.lastStrum = now;
+    if (Game.state === 'playing') Input.push('gstrum'); else if (!this.wiz && UI.screen !== 'gtr') Input.push(this.lastDir > 0 ? 'down' : 'up');
+  },
+  // keyboard fallback: A S D F G are the frets (hold), Enter / Up / Down strum. (Only live while a Guitar run is playing)
+  key(e, down) {
+    if (!(Game.state === 'playing' && Game.guitar)) { if (!down) this.keyMask = 0; return; }
+    const k = { KeyA: 0, KeyS: 1, KeyD: 2, KeyF: 3, KeyG: 4 }[e.code];
+    if (k !== undefined) { if (e.repeat) { e.preventDefault(); return; } if (down) this.keyMask |= 1 << k; else this.keyMask &= ~(1 << k); this.merge(); e.preventDefault(); e.stopPropagation(); return; }
+    if (down && !e.repeat && (e.code === 'Enter' || e.code === 'ArrowUp' || e.code === 'ArrowDown')) { this.strum(); e.preventDefault(); e.stopPropagation(); }
+  },
+  // touch fallback: five columns across the screen. A tap holds that fret and strums a moment later (so two fingers make a chord)
+  touch(e, down) {
+    if (!(Game.state === 'playing' && Game.guitar) || e.pointerType !== 'touch') { if (!down && this.touchMask) { this.tp.clear(); this.touchMask = 0; this.merge(); } return; }
+    if (down) { const lane = clamp(Math.floor(e.clientX / Math.max(1, innerWidth) * 5), 0, 4); this.tp.set(e.pointerId, lane); this.touchMask |= 1 << lane; this.merge(); if (!this._ts) this._ts = setTimeout(() => { this._ts = 0; this.strum(); }, 45); }
+    else { this.tp.delete(e.pointerId); let m = 0; for (const l of this.tp.values()) m |= 1 << l; this.touchMask = m; this.merge(); }
+  },
+  laneTarget(cur) { const f = this.mask; if (!f) return cur; let hi = 0; for (let l = 0; l < 5; l++) if (f & (1 << l)) hi = l; return hi - 2; },
+
+  // ---------- the learning wizard ----------
+  startWizard() {
+    const p = this.pad(); if (!p) { UI.toast('Plug in the guitar receiver, then strum once so the browser sees it'); return; }
+    this.wiz = { i: 0, map: { id: p.id, f: [], sd: null, su: null, sp: null, st: null, wh: null }, rest: Array.from(p.axes), btn: p.buttons.map((b) => b.pressed), wait: 0.4 }; UI.dirty = true;
+  },
+  learnTick(p) {
+    const W = this.wiz; if (!W) return; const st = GTR_STEPS[W.i]; if (!st) return;
+    W.wait -= 1 / 60; const bs = p.buttons.map((b) => b.pressed || b.value > 0.5); let got = null;
+    if (W.wait <= 0) {
+      for (let i = 0; i < bs.length; i++) if (bs[i] && !W.btn[i] && !this.used(W.map, { t: 'b', i })) { got = { t: 'b', i }; break; }
+      if (!got) for (let i = 0; i < p.axes.length; i++) { const d = p.axes[i] - (W.rest[i] || 0); if (Math.abs(d) > 0.55 && !this.used(W.map, { t: 'a', i, s: Math.sign(d) })) { got = { t: 'a', i, s: Math.sign(d), rest: W.rest[i] || 0, span: Math.max(0.5, Math.abs(d)) }; break; } }
+    }
+    W.btn = bs;
+    if (got) this.assign(st.k, got);
+  },
+  used(map, c) { const all = [].concat(map.f, [map.sd, map.su, map.sp, map.st, map.wh]).filter(Boolean); return all.some((x) => x.t === c.t && x.i === c.i && (c.t === 'b' || x.s === c.s)); },
+  assign(k, c) {
+    const W = this.wiz; if (k[0] === 'f') W.map.f[+k[1]] = c; else W.map[k] = c; this.next();
+  },
+  next() {
+    const W = this.wiz; if (!W) return; W.i++; W.wait = 0.5; const p = this.pad(); if (p) { W.rest = Array.from(p.axes); W.btn = p.buttons.map((b) => b.pressed || b.value > 0.5); }
+    if (W.i >= GTR_STEPS.length) { const m = W.map; if (!m.su) m.su = m.sd; this.map = m; this.save(); this.wiz = null; UI.toast('Guitar saved'); }
+    UI.dirty = true;
+  },
+  act(id, parts) {
+    if (parts[0] === 'gt_learn') this.startWizard();
+    else if (parts[0] === 'gt_skip') { if (this.wiz) this.next(); }
+    else if (parts[0] === 'gt_cancel') { this.wiz = null; UI.dirty = true; }
+    else if (parts[0] === 'gt_reset') { this.map = null; Store.set('dmtsurf.gtrmap', 'null'); this.wiz = null; UI.toast('Back to the Xbox 360 guitar layout'); }
+    else if (parts[0] === 'gt_lat') { Settings.gtrLat = clamp((Settings.gtrLat | 0) + (parts[1] === '+' ? 10 : -10), -150, 250); saveSettings(); }
+    else if (parts[0] === 'gt_back') { this.wiz = null; UI.set(UI.gtrBack || 'setup'); }
+    UI.dirty = true;
+  },
+  open(from) { UI.gtrBack = from || UI.screen || 'setup'; UI.set('gtr'); },
+  draw(u) {
+    const g = u.g, S = Settings, W = this.wiz;
+    u.panelBG(4, 4, UW - 8, UH - 8); u.title('Guitar', this.padId ? 'Controller connected' : 'No controller yet');
+    u.button('gt_back', 836, 26, 162, 50, 'Back', { size: 22 });
+    u.text(this.status, 36, 128, u.font(19, 600), this.padId ? C.ok : C.dim);
+    // live frets
+    const cx0 = 170, cy = 236;
+    for (let l = 0; l < 5; l++) { const on = (this.mask >> l) & 1, x = cx0 + l * 112; g.beginPath(); g.arc(x, cy, 40, 0, 6.2832); g.fillStyle = on ? GTR_CSS[l] : 'rgba(255,255,255,0.08)'; g.fill(); g.lineWidth = 4; g.strokeStyle = GTR_CSS[l]; g.stroke(); }
+    u.text('Strum', 760, cy - 6, u.font(20, 700), C.dim, 'center'); g.fillStyle = 'rgba(255,255,255,' + (0.1 + 0.8 * this.flash) + ')'; g.fillRect(704, cy + 6, 112, 18);
+    u.text('Whammy', 900, cy - 6, u.font(20, 700), C.dim, 'center'); g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(850, cy + 6, 100, 18); g.fillStyle = C.cy; g.fillRect(850, cy + 6, 100 * this.whammy, 18);
+    if (W) {
+      const st = GTR_STEPS[W.i]; u.rr(36, 312, UW - 72, 150, 20); g.fillStyle = 'rgba(80,200,255,0.12)'; g.fill();
+      u.text('Step ' + (W.i + 1) + ' of ' + GTR_STEPS.length, UW / 2, 350, u.font(18, 700), C.dim, 'center'); u.text(st.t, UW / 2, 410, u.font(34, 800), C.tx, 'center');
+      if (st.opt) u.button('gt_skip', 380, 426, 264, 40, 'Skip this one', { size: 18, r: 12 }); u.button('gt_cancel', 36, 480, 220, 44, 'Cancel', { size: 19, r: 12 });
+    } else {
+      u.button('gt_learn', 36, 330, 460, 64, '1  Set up my guitar (press each fret)', { size: 22, primary: !this.map && !(this.padId && this.curMap(this.pad()) === XBOX_GUITAR), r: 16 });
+      u.button('gt_reset', 506, 330, 300, 64, 'Use Xbox 360 layout', { size: 20, r: 16 });
+      u.text('Strum delay  ' + ((S.gtrLat | 0) > 0 ? '+' : '') + (S.gtrLat | 0) + ' ms', 36, 440, u.font(22, 700), C.tx); u.button('gt_lat:-', 340, 412, 56, 40, '−', { size: 24, r: 12 }); u.button('gt_lat:+', 402, 412, 56, 40, '+', { size: 24, r: 12 });
+      u.text('If notes feel late, raise it; if early, lower it. (Also see Settings, Calibrate.)', 480, 440, u.font(17, 500), C.dim);
+      u.text('No guitar? Keyboard: A S D F G hold frets, Enter strums. Phone: tap the five columns.', 36, 500, u.font(18, 500), C.dim);
+      u.text('Test it above: the circles light as you hold frets, the bar flashes on a strum.', 36, 530, u.font(18, 500), C.dim);
+    }
+  }
+};
+
 const CSRC_LABEL = { map: 'Chart: BEAT SABER MAP  ▸', house: 'Chart: IN-HOUSE ANALYSIS  ▸', mix: 'Chart: MAP + ANALYSIS  ▸' }, CSRC_TIP = { map: 'Playing the Beat Saber map as written', house: 'Ignoring the map: the game reads the music itself', mix: 'Map notes, plus the game fills the quiet gaps from the music' };
-const MODE_LABEL = { play: '◆  Game  ·  collect, dodge, turn', saber: '⚔  Sabers  ·  slice the beat', punch: '✊  Punch  ·  smash the beat', drive: '🔫  Drive-by  ·  fly and shoot', journey: '✦  Journey  ·  just enjoy the visuals' };
-const MODE_HINT = { journey: 'Autopilot flies  ·  steer any time to take over', saber: 'Red left, blue right  ·  avoid the mines  ·  phone: swipe', punch: 'Punch the orbs in your colour  ·  phone: tap', drive: 'Fly through gems or shoot them  ·  shoot spikes to clear them  ·  one shot per trigger pull / click / tap' };
+const MODE_LABEL = { play: '◆  Game  ·  collect, dodge, turn', saber: '⚔  Sabers  ·  slice the beat', punch: '✊  Punch  ·  smash the beat', drive: '🔫  Drive-by  ·  fly and shoot', journey: '✦  Journey  ·  just enjoy the visuals', guitar: '🎸  Guitar  ·  hold frets, strum' };
+const MODE_HINT = { guitar: 'Hold the fret colours, then strum  ·  chords need every fret  ·  Clone Hero charts play as written', journey: 'Autopilot flies  ·  steer any time to take over', saber: 'Red left, blue right  ·  avoid the mines  ·  phone: swipe', punch: 'Punch the orbs in your colour  ·  phone: tap', drive: 'Fly through gems or shoot them  ·  shoot spikes to clear them  ·  one shot per trigger pull / click / tap' };
 // ===== UI: one canvas drawn for both the flat overlay and the VR panel; separate small HUD canvas =====
 const UW = 1024, UH = 640;
 const C = { bg: 'rgba(9,7,26,0.92)', panel: 'rgba(34,29,74,0.85)', panel2: 'rgba(52,44,108,0.92)', hov: 'rgba(86,74,170,0.96)', cy: '#19e3ff', mg: '#ff3fd0', gd: '#ffd34d', tx: '#eef3ff', dim: '#98a1cc', red: '#ff5470', ok: '#46ffa0' };
@@ -5603,6 +6081,9 @@ const UI = {
       case 'mrq': MR.toggleQuick(); break;
       case 'mrpg': this.mrPage = ((this.mrPage | 0) + 1) % 3; this.dirty = true; break;
       case 'calib': Calib.start(); break;
+      case 'gtr_open': Gtr.open('setup'); break;
+      case 'gt_learn': case 'gt_skip': case 'gt_cancel': case 'gt_reset': case 'gt_lat': case 'gt_back': Gtr.act(id, parts); break;
+      case 'chpart': { const ps = CH.partsOf(L.items[L.selected].ch), i = ps.indexOf(S.chPart); S.chPart = ps[(i + 1) % ps.length]; saveSettings(); } break;
       case 'cal_apply': Calib.apply(); break;
       case 'gh_ride': case 'gh_share': case 'gh_del': case 'gh_imp': case 'gh_back': Ghosts.act(id, parts); break;
       case 'ghosts': Ghosts.open(); break;
@@ -5623,7 +6104,7 @@ const UI = {
       case 'bsfav': { const d = BS.results[+parts[1]]; if (d) { const k = 'bs' + d.id; if (S.favs[k]) delete S.favs[k]; else S.favs[k] = d.name; saveSettings(); UI.toast(S.favs[k] ? 'Added to favourites' : 'Removed from favourites'); } } break;
       case 'csrc': S.chartSrc = { map: 'house', house: 'mix', mix: 'map' }[S.chartSrc] || 'house'; saveSettings(); UI.toast(CSRC_TIP[S.chartSrc]); break;
       case 'hud': S.hud = S.hud === 'full' ? 'min' : S.hud === 'min' ? 'off' : 'full'; saveSettings(); break;
-      case 'mode': S.mode = { play: 'saber', saber: 'punch', punch: 'drive', drive: 'journey', journey: 'play' }[S.mode] || 'play'; applyModeView(); saveSettings(); break;
+      case 'mode': S.mode = { play: 'saber', saber: 'punch', punch: 'drive', drive: 'guitar', guitar: 'journey', journey: 'play' }[S.mode] || 'play'; applyModeView(); saveSettings(); break;
       case 'steer': S.control = { grip: 'point', point: 'stick', stick: 'lean', lean: 'grip' }[S.control] || 'grip'; saveSettings(); break;
       case 'settings': this.back = this.screen; this.set('settings'); break;
       case 'search': this.back = 'home'; this.kbOpen = false; this.set('search'); BS.open(); break;
@@ -5678,7 +6159,7 @@ const UI = {
   },
   draw() {
     const g = this.g; g.clearRect(0, 0, UW, UH); this.W.length = 0; g.textBaseline = 'alphabetic';
-    switch (this.screen) { case 'home': this.home(); break; case 'settings': this.settings(); break; case 'pause': this.pause(); break; case 'results': this.results(); break; case 'loading': this.loading(); break; case 'search': this.search(); break; case 'setup': this.setup(); break; case 'comfort': this.comfort(); break; case 'mr': this.mrScreen(); break; case 'calib': Calib.draw(this); break; case 'ghosts': Ghosts.draw(this); break; case 'spectate': Spectate.draw(this); break; }
+    switch (this.screen) { case 'home': this.home(); break; case 'settings': this.settings(); break; case 'pause': this.pause(); break; case 'results': this.results(); break; case 'loading': this.loading(); break; case 'search': this.search(); break; case 'setup': this.setup(); break; case 'comfort': this.comfort(); break; case 'mr': this.mrScreen(); break; case 'calib': Calib.draw(this); break; case 'ghosts': Ghosts.draw(this); break; case 'gtr': Gtr.draw(this); break; case 'spectate': Spectate.draw(this); break; }
     if (this.toastT > 0 && this.toastMsg) {
       g.font = this.font(24, 600); const w = Math.min(900, g.measureText(this.toastMsg).width + 56);
       this.rr((UW - w) / 2, UH - 82, w, 52, 26); g.fillStyle = 'rgba(0,0,0,0.88)'; g.fill(); g.lineWidth = 2; g.strokeStyle = C.cy; g.stroke();
@@ -5729,7 +6210,7 @@ const UI = {
       this.button('list:down', 596, 300, 44, 170, '▼', { size: 22, dis: this.scrollTop + rows >= items.length });
     }
     if (this.xr) { this.button('search', 30, 528, 440, 56, '⌕  Search songs online', { size: 23 }); this.button('exitvr', 480, 528, 160, 56, '⏏  Exit VR', { size: 23 }); this.text('Stick scrolls the list  ·  add your own files on the flat page', 335, 608, this.font(18, 500), C.dim, 'center'); }
-    else { const nf = Object.keys(S.favs).filter(k => /^bs/.test(k)).length; this.button('add', 30, 528, 118, 56, '＋ Add file', { size: 17 }); this.button('search', 154, 528, 112, 56, '⌕ Search', { size: 17 }); this.button('explist', 272, 528, 212, 56, 'Save favourites' + (nf ? '  (' + nf + ')' : ''), { size: 16, r: 14, primary: nf > 0 }); this.button('implist', 490, 528, 150, 56, 'Load favourites', { size: 16, r: 14 }); this.text('Star a song to favourite it  ·  Save / Load favourites keeps your list', 335, 608, this.font(17, 500), C.dim, 'center'); }
+    else { const nf = Object.keys(S.favs).filter(k => /^bs/.test(k)).length; this.button('add', 30, 528, 118, 56, '＋ Add file', { size: 17 }); this.button('search', 154, 528, 112, 56, '⌕ Search', { size: 17 }); this.button('explist', 272, 528, 212, 56, 'Save favourites' + (nf ? '  (' + nf + ')' : ''), { size: 16, r: 14, primary: nf > 0 }); this.button('implist', 490, 528, 150, 56, 'Load favourites', { size: 16, r: 14 }); this.button('addch', 646, 528, 170, 56, '🎸 Clone Hero zip', { size: 16, r: 14 }); this.button('addchdir', 822, 528, 172, 56, '🎸 CH folder', { size: 16, r: 14 }); this.text('Star a song to favourite it  ·  Save / Load favourites keeps your list', 335, 608, this.font(17, 500), C.dim, 'center'); }
     // right card
     const cx = 664, cw = 330;
     this.rr(cx - 6, 108, cw + 12, 500, 22); g.fillStyle = 'rgba(255,255,255,0.04)'; g.fill();
@@ -5771,9 +6252,9 @@ const UI = {
     const g = this.g, S = Settings, L = Library, sel = L.items[L.selected];
     this.panelBG(4, 4, UW - 8, UH - 8); this.title('Ready?', sel ? this.fit(sel.name, 760, this.font(21, 500)) : '');
     this.button('sback', 836, 26, 162, 50, 'Back', { size: 22 });
-    const MODES = [['play', '◆  Game', 'Collect, dodge, turn'], ['saber', '⚔  Sabers', 'Slice the beat'], ['punch', '✊  Punch', 'Smash the beat'], ['drive', '🔫  Drive-by', 'Ship + twin pistols'], ['journey', '✦  Journey', 'Just the visuals']];
-    this.text('MODE', 38, 140, this.font(17, 700), C.dim); const mw = (UW - 72 - 24) / 5;
-    MODES.forEach((m, i) => { const x = 36 + i * (mw + 6); this.button('smode:' + m[0], x, 150, mw, 84, '', { sel: S.mode === m[0], r: 16 }); this.text(m[1], x + mw / 2, 190, this.font(24, 800), S.mode === m[0] ? C.cy : C.tx, 'center'); this.text(m[2], x + mw / 2, 218, this.font(15, 500), C.dim, 'center'); });
+    const MODES = [['play', '◆  Game', 'Collect, dodge, turn'], ['saber', '⚔  Sabers', 'Slice the beat'], ['punch', '✊  Punch', 'Smash the beat'], ['drive', '🔫  Drive-by', 'Twin pistols'], ['guitar', '🎸  Guitar', 'Frets + strum'], ['journey', '✦  Journey', 'Just the visuals']];
+    this.text('MODE', 38, 140, this.font(17, 700), C.dim); const mw = (UW - 72 - 30) / 6;
+    MODES.forEach((m, i) => { const x = 36 + i * (mw + 6); this.button('smode:' + m[0], x, 150, mw, 84, '', { sel: S.mode === m[0], r: 16 }); this.text(m[1], x + mw / 2, 190, this.font(22, 800), S.mode === m[0] ? C.cy : C.tx, 'center'); this.text(m[2], x + mw / 2, 218, this.font(14, 500), C.dim, 'center'); });
     const hm = S.mode === 'saber' || S.mode === 'punch';
     if (!hm) {
       this.text('VIEW', 38, 272, this.font(17, 700), C.dim);
@@ -5781,12 +6262,13 @@ const UI = {
       VV.forEach((m, i) => { const x = 36 + i * (vw + 6), on = S.view === m[0]; this.button('sview:' + m[0], x, 282, vw, 68, '', { sel: on, r: 16 }); this.text(m[1], x + vw / 2, 314, this.font(26, 800), on ? C.cy : C.tx, 'center'); this.text(m[2], x + vw / 2, 338, this.font(16, 500), C.dim, 'center'); });
     } else this.text(S.mode === 'saber' ? 'Red blade in your left hand, blue in your right  -  you stand at the centre of the beat' : 'Red fist left, blue fist right  -  hit the orbs in your colour', UW / 2, 318, this.font(21, 600), C.dim, 'center');
     this.text('DIFFICULTY', 38, 384, this.font(17, 700), C.dim);
-    if (sel && sel.bs) this.button('csrc', UW - 38 - 330, 356, 330, 34, CSRC_LABEL[S.chartSrc] || CSRC_LABEL.map, { size: 16, r: 12 });
+    if (S.mode === 'guitar') { this.button('gtr_open', UW - 38 - 330, 356, 330, 34, '🎸 Guitar: ' + (Gtr.padId ? 'connected' : 'set up / test') + '  ▸', { size: 16, r: 12 }); if (sel && sel.ch) this.button('chpart', 36, 356, 250, 34, 'Part: ' + (CH_PART_NAMES[CH.pick(sel.ch, S.difficulty, S.chPart) ? CH.pick(sel.ch, S.difficulty, S.chPart).part : 'guitar'] || 'Lead guitar') + '  ▸', { size: 16, r: 12 }); }
+    else if (sel && sel.bs) this.button('csrc', UW - 38 - 330, 356, 330, 34, CSRC_LABEL[S.chartSrc] || CSRC_LABEL.map, { size: 16, r: 12 });
     if (S.mode === 'play' || S.mode === 'journey') this.button('ghosts', 36, 356, 250, 34, '👻 Ghosts  ·  ' + (sel ? Ghosts.list('dmtsurf.ghost.' + sel.key + ':' + S.difficulty).length : 0) + ' saved', { size: 16, r: 12 });
     const dw = (UW - 72 - 18) / 4; DIFFICULTIES.forEach((d, i) => this.button('diff:' + i, 36 + i * (dw + 6), 394, dw, 62, d.name, { sel: S.difficulty === i, size: 24, r: 14 }));
     const best = sel && L.best(sel, S.difficulty);
     this.text(S.mode === 'journey' ? 'Autopilot flies  ·  steer any time to take over' : MODE_HINT[S.mode] || (best ? 'Best  ' + best.score.toLocaleString() + '   ' + best.grade : 'No score yet on ' + DIFFICULTIES[S.difficulty].name), UW / 2, 498, this.font(20, 600), best && S.mode !== 'journey' ? C.gd : C.cy, 'center');
-    this.button('play', 262, 520, 500, 74, Queue.arm ? '▶   START SET  ·  ' + Queue.items().length + ' songs' : S.mode === 'journey' ? '✦   BEGIN JOURNEY' : S.mode === 'saber' ? '⚔   SLICE' : S.mode === 'punch' ? '✊   PUNCH' : S.mode === 'drive' ? '🔫   DRIVE' : '▶   START', { primary: true, size: 34, weight: 800, dis: !sel || sel.status !== 'ready' });
+    this.button('play', 262, 520, 500, 74, Queue.arm ? '▶   START SET  ·  ' + Queue.items().length + ' songs' : S.mode === 'journey' ? '✦   BEGIN JOURNEY' : S.mode === 'saber' ? '⚔   SLICE' : S.mode === 'punch' ? '✊   PUNCH' : S.mode === 'drive' ? '🔫   DRIVE' : S.mode === 'guitar' ? '🎸   ROCK' : '▶   START', { primary: true, size: 34, weight: 800, dis: !sel || sel.status !== 'ready' });
   },
 
   search() {
@@ -6254,7 +6736,7 @@ const MR = {
       #else
       uniform highp sampler2D uDepth;
       #endif
-      uniform float uLayer, uRaw, uHasD, uFmt, uFlip, uOcc, uDim, uEdge, uWall, uWash, uKickAge, uTime, uBeat, uBright, uBias, uStyle, uTint, uAlert, uGold, uSonar, uPulseOn; uniform vec3 uBL; uniform vec4 uPulse[4]; uniform vec3 uPulseC[4];
+      uniform float uLayer, uRaw, uHasD, uFmt, uFlip, uOcc, uDim, uEdge, uWall, uWash, uKickAge, uTime, uBeat, uBright, uBias, uFloorY, uStyle, uTint, uAlert, uGold, uSonar, uPulseOn; uniform vec3 uBL; uniform vec4 uPulse[4]; uniform vec3 uPulseC[4];
       uniform mat4 uNDBFNV, uInvProj, uCamWorld, uProj; uniform vec2 uTexel; uniform vec3 uA1, uA2, uHead;
       varying vec2 vUv;
       float rawD(vec2 uv) {
@@ -6308,12 +6790,13 @@ const MR = {
         }
         L *= uBright;
         gl_FragColor = vec4(L, dimA);
-        float zd = d + uBias; float ndc = (uProj[2][2] * -zd + uProj[3][2]) / zd;
-        gl_FragDepth = (uOcc > 0.5 && ok) ? clamp(ndc * 0.5 + 0.5, 0.0, 1.0) : 1.0;
+        bool fl = false; if (ok && uOcc > 0.5) { vec4 vq = uInvProj * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 vqs = vq.xyz / vq.w; vqs *= d / max(0.01, -vqs.z); fl = (uCamWorld * vec4(vqs, 1.0)).y < uFloorY + 0.35; }          // the real floor never hides the road lying on it
+        float zd = d + uBias + 0.05 * d; float ndc = (uProj[2][2] * -zd + uProj[3][2]) / zd;
+        gl_FragDepth = (uOcc > 0.5 && ok && !fl) ? clamp(ndc * 0.5 + 0.5, 0.0, 1.0) : 1.0;
       }`;
     this.bgU = {
       uDepth: { value: null }, uLayer: { value: 0 }, uRaw: { value: 0.001 }, uHasD: { value: 0 }, uFmt: { value: 0 }, uFlip: { value: 1 }, uOcc: { value: 0 }, uDim: { value: 0 }, uEdge: { value: 0 }, uWall: { value: 0 }, uWash: { value: 0 }, uAlert: { value: 0 }, uGold: { value: 0 }, uSonar: { value: 0 }, uPulseOn: { value: 0 }, uBL: { value: new THREE.Vector3() }, uPulse: { value: [new THREE.Vector4(0, 0, 0, 9), new THREE.Vector4(0, 0, 0, 9), new THREE.Vector4(0, 0, 0, 9), new THREE.Vector4(0, 0, 0, 9)] }, uPulseC: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] },
-      uKickAge: { value: 9 }, uStyle: { value: 0 }, uTint: { value: 1 }, uTime: U.uTime, uBeat: U.uBeat, uBright: U.uMRb, uBias: { value: 0.13 }, uNDBFNV: { value: new THREE.Matrix4() }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uProj: { value: new THREE.Matrix4() },
+      uKickAge: { value: 9 }, uStyle: { value: 0 }, uTint: { value: 1 }, uTime: U.uTime, uBeat: U.uBeat, uBright: U.uMRb, uBias: { value: 0.13 }, uFloorY: { value: 0 }, uNDBFNV: { value: new THREE.Matrix4() }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uProj: { value: new THREE.Matrix4() },
       uTexel: { value: new THREE.Vector2(0.01, 0.01) }, uA1: U.uA1, uA2: U.uA2, uHead: { value: new THREE.Vector3() }
     };
     this.bgVS = vs; this.bgFS = fs;
@@ -6433,7 +6916,7 @@ const MR = {
     B.uDim.value = Math.max(clamp(S.mrDim * clamp(0.3 + v * 1.2, 0, 1), 0, 0.92) * (full ? 0 : 1), clamp((1 - R.lum) * 0.92, 0, 0.92));
     B.uWash.value = pul ? clamp(0.16 * kick + 0.05 * (g.intensity || 0), 0, 0.3) : 0;
     B.uStyle.value = S.mrStyle === 'neon' ? 1 : S.mrStyle === 'crt' ? 2 : 0; B.uTint.value = 1;
-    B.uKickAge.value = this.ringAge; B.uFlip.value = S.mrFlip ? 0 : 1; B.uFmt.value = this.depthFmt; B.uHead.value.copy(Input.head);
+    B.uKickAge.value = this.ringAge; B.uFlip.value = S.mrFlip ? 0 : 1; B.uFmt.value = this.depthFmt; B.uHead.value.copy(Input.head); B.uFloorY.value = (MR.place ? MR.place.y : (XR.refType === 'local' ? Input.head.y - 1.6 : 0));
     const haveD = !!this.depthTex;
     const lowQ = R.quality >= 2;                                         // when the headset is struggling, the depth effects thin out first
     B.uEdge.value = (S.mrEdge && haveD && !lowQ) ? 1 : 0; B.uWall.value = (haveD && S.mrWall !== 'off') ? (S.mrWall === 'grid' && !lowQ ? 2 : 1) : 0;
@@ -6929,14 +7412,14 @@ async function init() {
     try {
       let p = Queue.pre ? await Queue.pre : null; const buf = p && p.it === nx ? p.buf : await Library.getBuffer(nx);
       Queue.next(); Library.selected = Library.items.indexOf(nx);
-      Game.start({ key: nx.key, name: nx.name, analysis: nx.analysis, buffer: buf, bs: nx.bs }, Settings.difficulty, true);
+      Game.start({ key: nx.key, name: nx.name, analysis: nx.analysis, buffer: buf, bs: nx.bs, ch: nx.ch }, Settings.difficulty, true);
       UI.toast('Next up:  ' + nx.name + '   (' + (Queue.pos + 1) + ' / ' + Queue.items().length + ')');
     } catch (e) { Game.finish(false); }
   };
   UI.onAct = handleAct;
   Input.attachFlat(glEl, uiEl);
   Library.onChange = () => { UI.dirty = true; };
-  Library.init(); Library.loadSaved();
+  Library.init(); Library.loadSaved(); Gtr.init();
   AudioEng.applyVolumes(); applyQuality();
   if (navigator.xr && navigator.xr.isSessionSupported) navigator.xr.isSessionSupported('immersive-vr').then((ok) => { UI.xrOK = !!ok; UI.dirty = true; }).catch(() => {});
   MR.probe();
@@ -6972,6 +7455,8 @@ async function init() {
   addEventListener('dragover', (e) => e.preventDefault());
   addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); });
   $('listfile').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) Library.importList(f); });
+  $('chfile').addEventListener('change', (e) => { const f = e.target.files; if (f.length) handleFiles(f); e.target.value = ''; });
+  $('chdir').addEventListener('change', (e) => { const f = e.target.files; if (f.length) handleFiles(f); e.target.value = ''; });
   fileEl.addEventListener('change', () => { if (fileEl.files.length) handleFiles(fileEl.files); fileEl.value = ''; });
   { let errT = 0; addEventListener('error', (e) => { const n = performance.now(); if (n - errT > 8000) { errT = n; try { UI.toast('Something glitched - the game keeps going'); } catch (x) {} } }); addEventListener('unhandledrejection', () => {}); }
   await bootP(1, ''); const boot = $('boot'); if (boot) boot.remove();
@@ -6979,6 +7464,11 @@ async function init() {
 }
 
 async function handleFiles(files) {
+  files = Array.from(files);
+  if (CH.looksLike(files) || CH.groups(files).length) {
+    const r = await Library.addCH(files); if (r.ok) UI.toast('Added ' + r.ok + ' Clone Hero song' + (r.ok > 1 ? 's' : '') + ' - analysing now'); else if (!r.bad) UI.toast('No Clone Hero songs found there');
+    const rest = files.filter(f => isAudioFile(f) && !f.webkitRelativePath); if (!rest.length) return; files = rest;
+  }
   const n = await Library.addFiles(Array.from(files));
   UI.toast(n ? 'Added ' + n + (n > 1 ? ' songs' : ' song') + ' - analysing now' : 'No new audio files found');
 }
@@ -7057,7 +7547,7 @@ async function startSelected() {
     AudioEng.init(); await AudioEng.resumeCtx();
     const buffer = await Library.getBuffer(it);
     Input.target = 0; Input.rawPrev = 0; Input.recenterLean(); Gov.acc = 0; Gov.n = 0; Gov.bad = 0;
-    Game.start({ key: it.key, name: it.name, analysis: it.analysis, buffer, bs: it.bs }, Settings.difficulty);
+    Game.start({ key: it.key, name: it.name, analysis: it.analysis, buffer, bs: it.bs, ch: it.ch }, Settings.difficulty);
     Spectate.onStart(); UI.set(null);
   } catch (e) { UI.set('home'); UI.toast('Could not start: ' + (e && e.message ? e.message : e)); }
   starting = false;
@@ -7067,6 +7557,8 @@ function handleAct(id) {
     case 'play': if (UI.screen === 'home') UI.set('setup'); else if (Queue.arm) { if (Queue.begin()) startSelected(); else Queue.arm = false; } else { Queue.end(); startSelected(); } break;
     case 'qagain': Queue.arm = true; if (Queue.begin()) startSelected(); break;
     case 'add': fileEl.click(); break;
+    case 'addch': $('chfile').click(); break;
+    case 'addchdir': $('chdir').click(); break;
     case 'explist': Library.exportList(); break;
     case 'implist': $('listfile').click(); break;
     case 'vr': enterVR('vr'); break;
@@ -7098,6 +7590,8 @@ function handleEvents(list) {
     switch (e.a) {
       case 'click': if (sc) UI.click(e.x, e.y); break;
       case 'scroll': UI.scrollList(e.d); break;
+      case 'gfret': if (st === 'playing' && Game.guitar) Game.gtrFret(e.mask); break;
+      case 'gstrum': if (st === 'playing' && Game.guitar && !Game.watch) Game.gtrStrum(); break;
       case 'overdrive': if (st === 'playing' && !Game.watch) Game.activateOverdrive(); break;
       case 'sky': if (st === 'playing' && !Game.watch) Game.skyBolt(e); break;
       case 'fire': if (st === 'playing' && Game.drive && !Game.watch) driveFire(e); break;
@@ -7171,7 +7665,9 @@ function loop(time, frame) {
     if (XR.needRecenter && Input.headOK) { XR.needRecenter = false; recenter(); }
   } else Input.updateFlat(dt);
   if (inXR) { const L = Input.hands.left, Rr = Input.hands.right, both = !!(L && Rr && L.btn[3] && Rr.btn[3]); if (both && !XR.qPrev && MR.on) MR.toggleQuick(); XR.qPrev = both; if (MR.gestureTick(dt, Game.state === 'playing')) Input.push('pause'); }
+  Gtr.poll(dt);
   handleEvents(Input.consume());
+  if (Game.state === 'playing' && Game.guitar && Gtr.mask) Input.target = Gtr.laneTarget(Input.target);
   UI.pointer(Input.ptr);
   Calib.update();
 
