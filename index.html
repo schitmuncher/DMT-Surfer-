@@ -100,7 +100,7 @@ const DEFAULT_SETTINGS = {
   difficulty: 1, speed: 1, control: 'point', ctlv: 2, flight: true, hand: 'right', sens: 1,
   vignette: true, haptics: 'full', hitVol: 0.6, musicVol: 0.9, offsetMs: 0,
   mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: false, mrHand: false, mrV3: true, mrV4: true, mrTunnel: true, mrTunnelW: 1, mrDepth: false, mrFloorOff: 0, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: false, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
-  quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', tiltAssist: 1, partyView: 'ghost', partyCoop: false, partyDriver: 0, skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
+  quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', tiltAssist: 1, stickDz: 0.25, stickAuto: true, partyView: 'ghost', partyCoop: false, partyDriver: 0, skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
 };
 function applyModeView() {                       // each mode family remembers its own view; Drive-by defaults to the cockpit
   const g = Settings.mode === 'drive' ? 'D' : 'O'; if (g === Settings.vgrp) return;
@@ -5735,7 +5735,7 @@ const Input = {
     this.tapMode = tapMode;
     const tapSteer = (e, down) => {                                   // phone: tap a side (step / hold to glide) or tap a lane (jump straight to it); the top strip holds fly-high
       const w = Math.max(1, gl.clientWidth), h = Math.max(1, gl.clientHeight), nx = e.clientX / w, ny = e.clientY / h;
-      if (Settings.flight && ny < 0.2 && !Game.drive) { this.mLift = true; this.mDn = false; this.liftId = e.pointerId; if (down) return; }
+      if (Settings.flight && !Game.drive) { this.liftAn = clamp((0.70 - ny) / 0.38, 0, 1); this.liftId = e.pointerId; if (this.liftAn < 0.04) this.liftAn = 0; }
       if (Settings.flight && ny > 0.86 && !Game.drive && Math.cos(Game.roll || 0) < 0.3) { this.mDn = true; this.mLift = false; this.liftId = e.pointerId; if (down) return; }      // upside down: the bottom strip is 'screen down'
       if (Settings.touch === 'lanes') { this.target = clamp((nx - 0.5) * 5, -2, 2); this.hold = null; return; }      // the ship goes to your finger: a tap lands on that lane (five equal columns), a drag slides smoothly, so long streaks are just a thumb moving along
       const side = nx < 0.5 ? -1 : 1;
@@ -5747,7 +5747,7 @@ const Input = {
       if (e.pointerType === 'touch' && tapMode()) { if (e.type === 'pointermove' && Settings.touch !== 'lanes') return; if (this.pointers.has(e.pointerId)) tapSteer(e, e.type === 'pointerdown'); return; }
       if (e.pointerType === 'touch' && Settings.touch === 'drag') {                 // relative drag: the ship moves with your thumb, wherever it lands, so it never hides the track
         const p = this.tp; if (!p || p.id !== e.pointerId) return;
-        this.target = clamp(p.t0 + (e.clientX - p.x0) / Math.max(1, gl.clientWidth) * 2 * 2.6 * Settings.sens, -2.15, 2.15); this.mLift = (p.y0 - e.clientY) > 0.12 * Math.max(1, gl.clientHeight); return;       // thumb dragged up = fly high
+        this.target = clamp(p.t0 + (e.clientX - p.x0) / Math.max(1, gl.clientWidth) * 2 * 2.6 * Settings.sens, -2.15, 2.15); this.liftAn = Settings.flight ? clamp((p.y0 - e.clientY) / (0.22 * Math.max(1, gl.clientHeight)), 0, 1) : 0; this.mLift = this.liftAn > 0.5; return;       // thumb dragged up = fly high
       }
       this.target = clamp(((e.clientX / Math.max(1, gl.clientWidth)) - 0.5) * 2 * 2.4 * Settings.sens, -2.15, 2.15);
       if (e.pointerType !== 'touch') this.mLift = e.clientY / Math.max(1, gl.clientHeight) < 0.16;                      // mouse in the top strip of the screen = fly high
@@ -5779,7 +5779,7 @@ const Input = {
       if (e.pointerType === 'mouse') this.firing = null;
       const tc = this.tapC; if (tc && tc.id === e.pointerId) { this.tapC = null; if (performance.now() - tc.t < 260 && Math.hypot(e.clientX - tc.x, e.clientY - tc.y) < 18 && Game.drive && Game.state === 'playing') this.push('fire', { nx: e.clientX / Math.max(1, gl.clientWidth), ny: e.clientY / Math.max(1, gl.clientHeight) }); }
     });
-    const up = (e) => { this.pointers.delete(e.pointerId); if (this.hold && this.hold.id === e.pointerId) this.hold = null; if (this.liftId === e.pointerId) { this.liftId = null; this.mLift = false; this.mDn = false; } if (this.tp && this.tp.id === e.pointerId) { this.tp = null; if (e.pointerType === 'touch') this.mLift = false; } };
+    const up = (e) => { this.pointers.delete(e.pointerId); if (this.hold && this.hold.id === e.pointerId) this.hold = null; if (this.liftId === e.pointerId) { this.liftId = null; this.mLift = false; this.mDn = false; this.liftAn = 0; } if (this.tp && this.tp.id === e.pointerId) { this.tp = null; if (e.pointerType === 'touch') { this.mLift = false; this.liftAn = 0; } } };
     gl.addEventListener('pointerup', up); gl.addEventListener('pointercancel', up);
     // overlay UI pointer (canvas coordinates)
     const map = (e) => { const r = ui.getBoundingClientRect(); return { x: (e.clientX - r.left) * UW / r.width, y: (e.clientY - r.top) * UH / r.height }; };
@@ -5815,7 +5815,7 @@ const Input = {
     if (dir) this.target = clamp(this.target + dir * dt * 6.5 * Settings.sens, -2.15, 2.15);
     const hd = this.hold; if (hd && performance.now() - hd.t > 170) this.target = clamp(this.target + hd.side * dt * 8 * (Settings.touchSpd || 1), -2, 2);      // keep a thumb down and the ship keeps going
     if (this.fireHeld && Game.drive && performance.now() - (this.fAuto || 0) > 140) { this.fAuto = performance.now(); this.push('fire', {}); }
-    this.liftV = clamp(((this.keys.u || this.mLift) ? 1 : 0) - ((this.keys.dn || this.mDn) ? 1 : 0) + Pad.liftV, -1, 1); this.lift = this.liftV > 0 ? 1 : 0;
+    this.liftV = clamp(Math.max(this.liftAn || 0, (this.keys.u || this.mLift) ? 1 : 0) - ((this.keys.dn || this.mDn) ? 1 : 0) + Pad.liftV, -1, 1); this.lift = this.liftV > 0 ? 1 : 0;
   },
 
   // ---------- XR ----------
@@ -5892,7 +5892,7 @@ const Input = {
       }
     } else if (mode === 'stick') {
       const h = this.steerHand();
-      if (h) { const dz = 0.08, a = Math.abs(h.ax) < dz ? 0 : Math.sign(h.ax) * (Math.abs(h.ax) - dz) / (1 - dz); raw = a * 2.15 * sens; }
+      if (h) { const dz = Math.max(0.05, (Settings.stickDz == null ? 0.25 : Settings.stickDz) - 0.17), a = Math.abs(h.ax) < dz ? 0 : Math.sign(h.ax) * (Math.abs(h.ax) - dz) / (1 - dz); raw = a * 2.15 * sens; }
     } else if (mode === 'grip') {                                         // squeeze a grip and drag sideways (1 lane per 16 cm); squeeze both and turn them like a wheel
       const L = this.hands.left, Rr = this.hands.right, shoot = Game.drive ? this.gunSide() : '', gl = !!(L && L.btn[1]) && shoot !== 'left', gr = !!(Rr && Rr.btn[1]) && shoot !== 'right', key = (gl ? 1 : 0) + (gr ? 2 : 0), G = this.grab || (this.grab = { key: 0 });
       let x = 0, ang = 0;
@@ -5917,7 +5917,9 @@ const Input = {
       this.lift = lf; this.liftV = lf ? 1 : dn ? -1 : 0; if (mode === 'grip' && this.grab && !this.grab.key) this.grab.p0 = undefined; }
     if (this.xr && mode !== 'lean') {                                      // either thumbstick can steer at any time (handy mid-drive); let go and the main control takes back over
       let sx = 0; for (const h of [this.hands.left, this.hands.right]) if (h && Math.abs(h.ax) > Math.abs(sx)) sx = h.ax;
-      const dz = 0.12; if (Math.abs(sx) > dz) { const a = Math.sign(sx) * (Math.abs(sx) - dz) / (1 - dz); this.stickOn = true; raw = a * 2.15 * sens; } else this.stickOn = false;
+      // a stick that sits off-centre without moving is drift (or a resting thumb), not steering: ignore it until it moves again, so it can never lock out pointing / grip / lean
+      const sk = this.stk || (this.stk = { v: 0, t: 0, ign: false }); if (Math.abs(sx - sk.v) > 0.04) { sk.v = sx; sk.t = 0; sk.ign = false; } else sk.t += dt; if (sk.t > 0.6 && Math.abs(sx) > 0.1 && mode !== 'stick' && Settings.stickAuto !== false) sk.ign = true;
+      const sdz = Settings.stickDz == null ? 0.25 : Settings.stickDz, dz = mode === 'stick' ? Math.max(0.05, sdz - 0.13) : sdz; if (!sk.ign && Math.abs(sx) > dz) { const a = Math.sign(sx) * (Math.abs(sx) - dz) / (1 - dz); this.stickOn = true; raw = a * 2.15 * sens; } else this.stickOn = false;
     }
     if (raw === null) return;
     raw = clamp(raw, -2.2, 2.2);
@@ -6182,7 +6184,7 @@ const MODE_LABEL = { play: '◆  Game  ·  collect, dodge, turn', saber: '⚔  S
 const MODE_HINT = { guitar: 'Hold the fret colours, then strum  ·  chords need every fret  ·  Clone Hero charts play as written', journey: 'Autopilot flies  ·  steer any time to take over', saber: 'Red left, blue right  ·  avoid the mines  ·  phone: swipe', punch: 'Punch the orbs in your colour  ·  phone: tap', drive: 'Fly through gems or shoot them  ·  shoot spikes to clear them  ·  one shot per trigger pull / click / tap' };
 // ===== UI: one canvas drawn for both the flat overlay and the VR panel; separate small HUD canvas =====
 let UW = 1024, UH = 640;          // the menu canvas: landscape 1024 x 640, or a portrait 640 x ~1100 on phones held upright (see UI.applyShape)
-const PT_SCREENS = new Set(['home', 'setup', 'settings', 'pause', 'results', 'spectate', 'party', 'rank', 'loading']);
+const PT_SCREENS = new Set(['home', 'setup', 'settings', 'pause', 'results', 'spectate', 'party', 'rank', 'loading', 'search', 'ghosts', 'comfort', 'tutorial']);
 const C = { bg: 'rgba(9,7,26,0.92)', panel: 'rgba(34,29,74,0.85)', panel2: 'rgba(52,44,108,0.92)', hov: 'rgba(86,74,170,0.96)', cy: '#19e3ff', mg: '#ff3fd0', gd: '#ffd34d', tx: '#eef3ff', dim: '#98a1cc', red: '#ff5470', ok: '#46ffa0' };
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 const GRADE_COL = { S: '#ffd34d', A: '#46ffa0', B: '#19e3ff', C: '#c9a0ff', D: '#ff9a5c', F: '#ff5470' };
@@ -6193,6 +6195,8 @@ const SETTING_ROWS = [
   { k: 'tilt', label: 'Camera tilt & bank', opts: ['auto', 'off', 'low', 'high'], names: ['Auto', 'Off', 'Low', 'High'] },
   { k: 'control', label: 'Steering (VR)', opts: ['grip', 'point', 'stick', 'lean'], names: ['Grip', 'Point', 'Stick', 'Lean'] },
   { k: 'touch', label: 'Touch steering', opts: ['lanes', 'tap', 'drag', 'slide'], names: ['Tap & slide', 'Tap sides', 'Drag (relative)', 'Slide (old)'] },
+  { k: 'stickDz', label: 'Stick dead zone (drift fix)', min: 0.1, max: 0.6, step: 0.05, fmt: (v) => Math.round(v * 100) + '%' },
+  { k: 'stickAuto', label: 'Ignore stuck stick', bool: true },
   { k: 'tiltAssist', label: 'Phone tilt steering', min: 0, max: 2, step: 0.25, fmt: (v) => v ? v.toFixed(2) + 'x' : 'Off' },
   { k: 'touchSpd', label: 'Touch steering speed', min: 0.5, max: 2.5, step: 0.25, fmt: (v) => v.toFixed(2) + 'x' },
   { k: 'hand', label: 'Shooting hand (other hand steers)', opts: ['right', 'left'], names: ['Right', 'Left'] },
@@ -6311,6 +6315,7 @@ const UI = {
       case 'setup_up': this.setTop = Math.max(0, (this.setTop | 0) - 3); this.dirty = true; break;
       case 'setup_dn': this.setTop = (this.setTop | 0) + 3; this.dirty = true; break;
       case 'comfort': this.set('comfort'); break;
+      case 'tut_open': case 'tut_back': case 'tut_prev': case 'tut_next': case 'tut_toc': case 'tut_pg': case 'tut_plat': case 'tut_up': case 'tut_dn': Tut.act(id, parts); break;
       case 'mrs': this.set('mr'); break;
       case 'mrback': this.set('settings'); break;
       case 'mrplace': MR.beginPlace(); break;
@@ -6333,7 +6338,7 @@ const UI = {
       case 'cback': this.set('settings'); break;
       case 'cset': S[parts[1]] = !S[parts[1]]; saveSettings(); if (parts[1] === 'cMotion' || parts[1] === 'cFlash' || parts[1] === 'cSteady') UI.toast('Applies right away'); break;
       case 'gen': BS.genre = BS.genres[+parts[1]][1]; this.kbOpen = false; BS.run(false); break;
-      case 'gscroll': BS.gOff = clamp(BS.gOff + (parts[1] === '+' ? 4 : -4), 0, BS.genres.length - 7); break;
+      case 'gscroll': BS.gOff = clamp(BS.gOff + (parts[1] === '+' ? 4 : -4), 0, Math.max(0, BS.genres.length - (BS.gVis || 7))); break;
       case 'sort': BS.sort = parts[1]; BS.run(false); break;
       case 'yr': { const Y = BS.years; let i = Y.indexOf(BS.year); i = parts[1] === '0' ? 0 : clamp(i + (parts[1] === '+' ? 1 : -1), 0, Y.length - 1); BS.year = Y[i]; BS.run(false); } break;
       case 'spd': S.speed = clamp(Math.round((S.speed + (parts[1] === '+' ? 0.1 : -0.1)) * 10) / 10, 0.7, 1.4); saveSettings(); break;
@@ -6385,6 +6390,7 @@ const UI = {
       .catch((e) => { delete BS.dl[d.id]; this.toast((e && e.message) || 'Download failed'); });
   },
   scrollList(d) {
+    if (this.screen === 'tutorial') { Tut.scroll(d); return; }
     if (this.screen === 'search') { const n = BS.results.length; this.sTop = clamp(this.sTop + d * 3, 0, Math.max(0, n - 4)); if (this.sTop + 4 >= n - 2 && BS.more && !BS.loading && n) BS.run(true); this.dirty = true; return; }
     const n = Library.items.length; if (this.screen !== 'home' || !n) return; Library.selected = clamp(Library.selected + d, 0, n - 1); this.confirmRemove = -1; this.dirty = true; },
 
@@ -6398,7 +6404,7 @@ const UI = {
   },
   draw() {
     const g = this.g; g.clearRect(0, 0, UW, UH); this.W.length = 0; g.textBaseline = 'alphabetic';
-    switch (this.screen) { case 'home': this.home(); break; case 'settings': this.settings(); break; case 'pause': this.pause(); break; case 'results': this.results(); break; case 'party': Party.draw(this); break; case 'rank': Party.drawResults(this); break; case 'loading': this.loading(); break; case 'search': this.search(); break; case 'setup': this.setup(); break; case 'comfort': this.comfort(); break; case 'mr': this.mrScreen(); break; case 'calib': Calib.draw(this); break; case 'ghosts': Ghosts.draw(this); break; case 'gtr': Gtr.draw(this); break; case 'spectate': Spectate.draw(this); break; }
+    switch (this.screen) { case 'home': this.home(); break; case 'settings': this.settings(); break; case 'pause': this.pause(); break; case 'results': this.results(); break; case 'party': Party.draw(this); break; case 'rank': Party.drawResults(this); break; case 'loading': this.loading(); break; case 'search': this.search(); break; case 'setup': this.setup(); break; case 'comfort': this.comfort(); break; case 'mr': this.mrScreen(); break; case 'calib': Calib.draw(this); break; case 'ghosts': Ghosts.draw(this); break; case 'gtr': Gtr.draw(this); break; case 'spectate': Spectate.draw(this); break; case 'tutorial': Tut.draw(this); break; }
     if (this.toastT > 0 && this.toastMsg) {
       g.font = this.font(24, 600); const w = Math.min(900, g.measureText(this.toastMsg).width + 56);
       this.rr((UW - w) / 2, UH - 82, w, 52, 26); g.fillStyle = 'rgba(0,0,0,0.88)'; g.fill(); g.lineWidth = 2; g.strokeStyle = C.cy; g.stroke();
@@ -6663,7 +6669,7 @@ const HUD = {
   canvas: null, g: null, key: '', dirty: false,
   init(canvas) { this.canvas = canvas; canvas.width = 768; canvas.height = 256; this.g = canvas.getContext('2d'); },
   update(now) {
-    const pk = Party.sig(); if (pk !== this.pk) { this.pk = pk; this.key = ''; } const r = this.update0(now); if (r && pk) Party.hudDraw(this.g); return r;
+    const pk = Party.sig(); if (pk !== this.pk) { this.pk = pk; this.key = ''; } const r = this.update0(now); if (r && pk && UI.xr) Party.hudDraw(this.g); return r;
   },
   update0(now) {
     const G = Game, g = this.g; if (!g) return false;
@@ -7008,9 +7014,10 @@ Object.assign(UI, {
     const hb = [];
     if (xr) hb.push(['recenter', 'Recenter', 150, {}]); else if (this.xrOK && this.arOK) { hb.push(['vr', 'ENTER VR', 132, { primary: true, weight: 800 }]); hb.push(['ar', 'MIXED', 100, { weight: 800 }]); } else if (this.xrOK) hb.push(['vr', 'ENTER VR', 170, { primary: true, weight: 800 }]);
     hb.push(['spectate', Party.on() ? '● Party' : Spectate.st === 'live' ? '● Live' : '👥 Friends', P ? 0 : 150, {}]);
+    hb.push(['tut_open', 'Guide', P ? 0 : 100, {}]);
     hb.push(['settings', 'Settings', P ? 0 : 140, {}]);
     if (!P) { let x = UW - 24; for (let i = hb.length - 1; i >= 0; i--) { const b = hb[i]; x -= b[2]; this.button(b[0], x, 24, b[2], 52, b[1], Object.assign({ size: 20 }, b[3])); x -= 10; } }
-    else { this.button('settings', UW - 30 - 170, 28, 170, 62, 'Settings', { size: 26 }); const r2 = hb.filter(b => b[0] !== 'settings').map(b => [b[0], b[1], Object.assign({ size: 24 }, b[3])]); this.evenRow(r2, 24, 112, UW - 48, 60, 10); }
+    else { this.button('settings', UW - 30 - 170, 28, 170, 62, 'Settings', { size: 26 }); const r2 = hb.filter(b => b[0] !== 'settings').map(b => [b[0], b[1], Object.assign({ size: hb.length > 3 ? 21 : 24 }, b[3])]); this.evenRow(r2, 24, 112, UW - 48, 60, 10); }
     // song list
     const y0 = P ? (hb.length > 1 ? 188 : 128) : 112, rh = P ? 88 : 66, gap = 4;
     const listBot = P ? UH - 452 : 536, rows = Math.max(2, Math.floor((listBot - y0 + gap) / (rh + gap))), x0 = P ? 24 : 28, lw = P ? UW - 48 : 590;
@@ -7113,13 +7120,13 @@ Object.assign(UI, {
       for (let i = 0; i < per * 2; i++) { const row = rows[this.setPg * per * 2 + i]; if (!row) break; this.settingRow(row, R.x + (i < per ? 0 : cw + 20), y0 + (i % per) * st, cw, rh); }
       if (pages > 1) this.button('setpg', UW - 36 - 190, 26, 190, 46, 'Page ' + (this.setPg + 1) + ' / ' + pages + '  ›', { size: 19 });
       this.text('Hits feel early? Raise the audio offset.  Wired headphones = lowest latency.', R.x, by - 12, this.font(16, 500), C.dim);
-      this.evenRow([['comfort', 'Comfort', {}], ['mrs', 'Passthrough', {}], ['calib', 'Calibrate audio', {}], ['back', 'Done', { primary: true, weight: 800, size: 26 }]], R.x, by, R.w, 50, 10);
+      this.evenRow([['comfort', 'Comfort', {}], ['mrs', 'Passthrough', {}], ['calib', 'Calibrate audio', {}], ['tut_open', 'Guide', {}], ['back', 'Done', { primary: true, weight: 800, size: 26 }]], R.x, by, R.w, 50, 10);
     } else {
       const rh = 76, st = 82, area = by - 14 - top - 14, per = Math.max(3, Math.floor(area / st)); this.setTop = clamp(this.setTop | 0, 0, Math.max(0, rows.length - per));
       for (let i = 0; i < per; i++) { const row = rows[this.setTop + i]; if (!row) break; this.settingRow(row, R.x, top + 14 + i * st, R.w, rh); }
       this.text((this.setTop + 1) + '–' + Math.min(rows.length, this.setTop + per) + ' of ' + rows.length + '  ·  swipe to scroll', R.x + 4, top + 6, this.font(19, 500), C.dim);
       this.button('setup_up', UW - 24 - 150, 28, 70, 56, '▲', { size: 22, dis: this.setTop <= 0 }); this.button('setup_dn', UW - 24 - 74, 28, 74, 56, '▼', { size: 22, dis: this.setTop + per >= rows.length });
-      this.evenRow([['comfort', 'Comfort', { size: 22 }], ['mrs', 'Passthrough', { size: 22 }], ['calib', 'Audio sync', { size: 22 }]], R.x, by, R.w, 60, 8);
+      this.evenRow([['comfort', 'Comfort', { size: 22 }], ['mrs', 'Passthrough', { size: 22 }], ['calib', 'Audio sync', { size: 22 }], ['tut_open', 'Guide', { size: 22 }]], R.x, by, R.w, 60, 8);
       this.button('back', R.x, by + 70, R.w, 70, 'Done', { primary: true, size: 32, weight: 800 });
     }
   },
@@ -7132,7 +7139,12 @@ Object.assign(UI, {
     if (mrOn) { items.push(['mrq', 'World:  ' + (MR.quick ? 'FULL VR' : 'PASSTHROUGH'), { sel: MR.quick }]); items.push(['mrplace', MR.place ? 'Move the track' : 'Place the track', {}]); }
     if (this.xr) { items.push(['recenter', 'Recenter view', {}]); items.push(['exitvr', '⏏  Exit VR', {}]); }
     items.push(['quit', 'Quit to menu', {}]);
-    const top = y + (P ? 120 : (mrOn ? 76 : 84)), avail = y + h - 24 - top, gap = P ? 14 : mrOn ? 5 : 7, n = items.length, bh = clamp(Math.floor((avail - gap * (n - 1)) / n), 36, P ? 92 : 58);
+    if (Party.inRound()) {                                                // in a Party the host's pause belongs to everyone
+      const host = Party.role === 'host'; this.text(host ? 'Paused for everyone' : 'Paused by ' + (Party.pausedBy || 'the host'), UW / 2, y + (P ? 112 : 94), this.font(P ? 26 : 19, 700), C.gd, 'center');
+      if (host) { items[0][1] = '▶  Resume for everyone'; items[1][1] = '↻  Restart for everyone'; const q = items.find(b => b[0] === 'quit'); q[1] = 'End round for everyone'; }
+      else { for (let i = items.length - 1; i >= 0; i--) if (items[i][0] === 'resume' || items[i][0] === 'restart') items.splice(i, 1); items.find(b => b[0] === 'quit')[1] = 'Leave this round'; }
+    }
+    const top = y + (P ? 136 : (mrOn ? 90 : 104)), avail = y + h - 24 - top, gap = P ? 14 : mrOn ? 5 : 7, n = items.length, bh = clamp(Math.floor((avail - gap * (n - 1)) / n), 36, P ? 92 : 58);
     items.forEach((b, i) => this.button(b[0], x + 36, top + i * (bh + gap), w - 72, bh, b[1], Object.assign({ size: P ? 30 : (bh < 44 ? 22 : 25) }, b[2])));
   },
 
@@ -7170,6 +7182,97 @@ Object.assign(UI, {
     else { this.button(Queue.run ? 'qagain' : 'retry', 140, by, 340, 70, Queue.run ? '↻  Run the set again' : '↻  Play again', { primary: true, size: Queue.run ? 26 : 28, weight: 800 }); this.button('menu', 544, by, 340, 70, 'Song menu', { size: 28 }); }
   }
 });
+
+
+// ===== the remaining screens: Find songs, Ghosts, Comfort, Loading and the Friends hub, responsive for the tall phone canvas (the wide versions stay as they were) =====
+Object.assign(UI, {
+  wrap(t, x, y, w, font, col, lh, max, al) {                              // word-wrapped text; returns the y after the last line
+    const g = this.g; g.font = font; const words = String(t || '').split(' '); let line = '', n = 0; const out = [];
+    for (const wd of words) { const tt = line ? line + ' ' + wd : wd; if (g.measureText(tt).width > w && line) { out.push(line); line = wd; } else line = tt; } if (line) out.push(line);
+    out.slice(0, max || 9).forEach((l, i) => this.text(l, x, y + i * lh, font, col, al || 'left')); return y + Math.min(out.length, max || 9) * lh;
+  },
+  card(id, x, y, w, h, title, desc, o) {                                  // a big tappable card: a title and a short wrapped description
+    o = o || {}; const P = this.pt; this.button(id, x, y, w, h, '', { r: 22, primary: !!o.primary }); const dark = !!o.primary;
+    this.text(title, x + w / 2, y + h * (P ? 0.3 : 0.3), this.font(P ? 34 : 26, 900), dark ? '#06041a' : C.cy, 'center', 'middle');
+    this.wrap(desc, x + w / 2, y + h * 0.5 + (P ? 8 : 6), w - 40, this.font(P ? 24 : 18, 500), dark ? 'rgba(6,4,26,0.78)' : C.dim, P ? 32 : 25, 3, 'center');
+  },
+  keypad(R, pre, n, input, msg, cancelId) {                              // digit entry: n boxes and a number pad (also used for room codes)
+    const P = this.pt, g = this.g, cell = P ? (n > 6 ? 66 : 80) : 54, gap = 8, tw = n * cell + (n - 1) * gap, x0 = (UW - tw) / 2, y0 = R.y + (P ? 76 : 34);
+    this.text(msg, UW / 2, y0 - 14, this.font(P ? 28 : 24, 700), C.tx, 'center');
+    for (let i = 0; i < n; i++) { const x = x0 + i * (cell + gap); this.rr(x, y0 + 8, cell, cell * 1.2, 12); g.fillStyle = 'rgba(255,255,255,0.08)'; g.fill(); this.text(input[i] || '', x + cell / 2, y0 + 8 + cell * 0.88, this.font(P ? 44 : 38, 800), C.cy, 'center'); }
+    const kw = P ? 170 : 96, kh = P ? 104 : 62, kg = P ? 14 : 10, kx = (UW - (3 * kw + 2 * kg)) / 2, ky = y0 + cell * 1.2 + (P ? 60 : 36);
+    ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'x', '0'].forEach((k, i) => { const col = k === '0' ? 1 : i % 3, row = k === '0' ? 3 : (i / 3) | 0; this.button(pre + ':' + k, kx + col * (kw + kg), ky + row * (kh + kg), kw, kh, k === 'x' ? '⌫' : k, { size: P ? 44 : 30, weight: 800 }); });
+    this.button(cancelId, kx, ky + 4 * (kh + kg) + (P ? 6 : 0), 3 * kw + 2 * kg, P ? 78 : 50, 'Cancel', { size: P ? 28 : 20 });
+  },
+  vrButton(x, y, w, h, o) {                                              // enter / leave VR from any screen that wants it (only when the browser can do VR, or you are already in it)
+    if (this.xr) { this.button('exitvr', x, y, w, h, '⏏  Exit VR', Object.assign({ size: 22 }, o)); return true; }
+    if (this.xrOK) { this.button('vr', x, y, w, h, '🥽  Enter VR', Object.assign({ size: 22 }, o)); return true; } return false;
+  }
+});
+{
+  const old = { search: UI.search, comfort: UI.comfort, loading: UI.loading, ghosts: Ghosts.draw };
+  UI.search = function () {
+    if (!this.pt) { BS.gVis = 7; return old.search.call(this); }
+    const g = this.g, R = this.frame('Find songs', 'BeatSaver  ·  thousands of mapped songs', 'back'); let y = R.y;
+    this.button('sq', R.x, y, R.w - 168, 68, '', { r: 14, sel: this.kbOpen }); const qf = this.font(28, 600); g.font = qf;
+    this.text(BS.q ? this.fit(BS.q, R.w - 210, qf) + (this.kbOpen ? '▏' : '') : (this.kbOpen ? '▏' : 'Type a song or artist…'), R.x + 18, y + 44, qf, BS.q ? C.tx : C.dim);
+    this.button('kb_go', R.x + R.w - 158, y, 158, 68, 'Search', { primary: true, size: 26, weight: 800 });
+    if (this.kbOpen) {
+      const rows = ['1234567890', 'qwertyuiop', 'asdfghjkl', 'zxcvbnm'], kg = 6, kw = (R.w - 9 * kg) / 10, rh = 84, ky = R.b - 5 * (rh + kg);
+      rows.forEach((row, r) => { const w = row.length * (kw + kg) - kg, x0 = (UW - w) / 2; for (let i = 0; i < row.length; i++) this.button('k:' + row[i], x0 + i * (kw + kg), ky + r * (rh + kg), kw, rh, row[i].toUpperCase(), { size: 30, r: 12 }); });
+      const by = ky + 4 * (rh + kg), u1 = (R.w - 3 * kg) / 8; this.button('kb_sp', R.x, by, u1 * 4 + kg * 3, rh, 'space', { size: 24, r: 12 }); this.button('kb_bs', R.x + u1 * 4 + kg * 4, by, u1, rh, '⌫', { size: 30, r: 12 }); this.button('kb_hide', R.x + u1 * 5 + kg * 5, by, u1 * 1.5, rh, 'Hide', { size: 22, r: 12 }); this.button('kb_go', R.x + u1 * 6.5 + kg * 6, by, u1 * 1.5, rh, 'Go', { primary: true, size: 26, r: 12 });
+      this.text('Tip: on a computer you can just type', UW / 2, ky - 18, this.font(20, 500), C.dim, 'center'); return;
+    }
+    y += 82; const G = BS.genres, vis = 4, ar = 56, cg = 6, cw = (R.w - 2 * ar - (vis + 1) * cg) / vis; BS.gVis = vis;
+    this.button('gscroll:-', R.x, y, ar, 58, '◀', { size: 20, r: 10, dis: BS.gOff <= 0 });
+    for (let k = 0; k < vis; k++) { const gi = BS.gOff + k; if (gi >= G.length) break; this.button('gen:' + gi, R.x + ar + cg + k * (cw + cg), y, cw, 58, G[gi][0], { size: 20, r: 10, sel: BS.genre === G[gi][1] }); }
+    this.button('gscroll:+', R.x + R.w - ar, y, ar, 58, '▶', { size: 20, r: 10, dis: BS.gOff >= G.length - vis }); y += 66;
+    { const sw = (R.w - 2 * cg) / 3; [['Rating', 'Top rated'], ['Latest', 'Latest'], ['Curated', 'Curated']].forEach((m, i) => this.button('sort:' + m[0], R.x + i * (sw + cg), y, sw, 58, m[1], { size: 22, r: 10, sel: BS.sort === m[0] })); y += 66; }
+    this.button('yr:-', R.x, y, ar, 58, '◀', { size: 20, r: 10, dis: BS.years.indexOf(BS.year) <= 0 }); this.button('yr:0', R.x + ar + cg, y, R.w - 2 * ar - 2 * cg, 58, BS.year ? 'Uploaded in ' + BS.year : 'Any year', { size: 22, r: 10, sel: !!BS.year }); this.button('yr:+', R.x + R.w - ar, y, ar, 58, '▶', { size: 20, r: 10, dis: BS.years.indexOf(BS.year) >= BS.years.length - 1 }); y += 74;
+    const rh = 124, bot = R.b - 70, rows = Math.max(2, Math.floor((bot - y) / (rh + 8))), res = BS.results; this.sTop = clamp(this.sTop, 0, Math.max(0, res.length - rows));
+    for (let r = 0; r < rows; r++) {
+      const i = this.sTop + r, yy = y + r * (rh + 8); if (i >= res.length) break; const d = res[i], li = Library.items.findIndex(x => x.key === 'bs' + d.id), dl = BS.dl[d.id];
+      this.rr(R.x, yy, R.w, rh, 16); g.fillStyle = 'rgba(255,255,255,0.06)'; g.fill();
+      this.text(this.fit(d.name, R.w - 220, this.font(28, 700)), R.x + 16, yy + 38, this.font(28, 700), C.tx);
+      const nm = { Easy: 'E', Normal: 'N', Hard: 'H', Expert: 'X', ExpertPlus: 'X+' }; this.text(this.fit([d.artist, d.mapper ? 'by ' + d.mapper : ''].filter(Boolean).join('  ·  '), R.w - 220, this.font(21, 500)), R.x + 16, yy + 70, this.font(21, 500), C.dim);
+      this.text(this.fit([d.bpm ? Math.round(d.bpm) + ' BPM' : '', d.dur ? fmtTime(d.dur) : '', d.score ? Math.round(d.score * 100) + '%' : '', d.diffs.map(x => nm[x] || x).join(' ')].filter(Boolean).join('  ·  '), R.w - 220, this.font(20, 600)), R.x + 16, yy + 102, this.font(20, 600), C.cy);
+      const label = dl !== undefined ? (dl > 0 ? Math.round(dl * 100) + '%' : '…') : li >= 0 ? 'OPEN' : 'GET';
+      this.button('bsget:' + i, R.x + R.w - 16 - 150, yy + 14, 150, 60, label, { primary: li < 0 && dl === undefined, size: 26, weight: 800, dis: dl !== undefined, r: 14 });
+      this.button('bsfav:' + i, R.x + R.w - 16 - 150, yy + 80, 150, 36, '', { r: 12 }); this.star(R.x + R.w - 16 - 75, yy + 98, 13, !!Settings.favs['bs' + d.id]);
+    }
+    const my = R.b - 58; if (res.length > rows) { this.button('bsup', R.x + R.w - 2 * 110 - 8, my, 110, 58, '▲', { size: 24, dis: this.sTop <= 0 }); this.button('bsdown', R.x + R.w - 110, my, 110, 58, '▼', { size: 24, dis: this.sTop + rows >= res.length && !BS.more }); }
+    const msg = BS.loading ? 'Searching…' : BS.error || (BS.q.trim() ? '' : (BS.sort === 'Rating' ? 'Top rated' : BS.sort === 'Latest' ? 'Newest' : 'Curated') + (BS.genre ? '  ·  ' + (BS.genres.find(x => x[1] === BS.genre) || [''])[0] : '') + (BS.year ? '  ·  ' + BS.year : ''));
+    if (msg) this.text(this.fit(msg, R.w - 260, this.font(24, 600)), R.x + 4, my + 38, this.font(24, 600), BS.error ? C.red : C.dim);
+  };
+  UI.comfort = function () {
+    if (!this.pt) return old.comfort.call(this);
+    const g = this.g, S = Settings, R = this.frame('Comfort', 'Off by default  ·  turn on whatever helps', 'cback');
+    const ROWS = [['cMotion', 'Reduce motion', 'No camera shake, bumps or zoom pulses'], ['cFlash', 'Reduce flashing', 'Softer beat flashes, no lightning strikes'], ['cSteady', 'Steady horizon', 'No banking, tilting, hills or camera turns. The road still bends'],
+      ['cCalm', 'Gentle scenes', 'No horror or uncanny scenes, ever'], ['cSeated', 'Seated / reach assist', 'Sabers and punch: lower targets and a bigger hit area'], ['vignette', 'Comfort vignette (VR)', 'Darkens the edges of your view while you move']];
+    const rh = Math.min(150, Math.floor((R.b - 70 - R.y - 5 * 10) / 6));
+    ROWS.forEach((r, i) => { const y = R.y + i * (rh + 10), on = !!S[r[0]]; this.rr(R.x, y, R.w, rh, 16); g.fillStyle = 'rgba(255,255,255,0.05)'; g.fill();
+      this.text(r[1], R.x + 18, y + 40, this.font(28, 700), C.tx); this.wrap(r[2], R.x + 18, y + 74, R.w - 200, this.font(20, 500), C.dim, 26, 3);
+      this.button('cset:' + r[0], R.x + R.w - 16 - 150, y + (rh - 66) / 2, 150, 66, on ? 'ON' : 'OFF', { size: 26, weight: 800, r: 14, sel: on }); });
+    this.wrap('If VR makes you queasy, start with Steady horizon and Reduce motion, and keep the vignette on.', R.x + 4, R.b - 34, R.w - 8, this.font(20, 500), C.dim, 26, 2);
+  };
+  UI.loading = function () {
+    const g = this.g, w = this.pt ? UW - 80 : 500, x = (UW - w) / 2, y = this.pt ? UH / 2 - 130 : 200; this.panelBG(x, y, w, 220);
+    this.wrap(Game.loadMsg || 'Preparing track…', UW / 2, y + 100, w - 40, this.font(30, 700), C.tx, 38, 2, 'center');
+    g.save(); g.translate(UW / 2, y + 172); g.rotate(this.spin * 4); g.lineWidth = 6; g.strokeStyle = C.cy; g.beginPath(); g.arc(0, 0, 18, 0, 4.4); g.stroke(); g.restore();
+  };
+  Ghosts.draw = function (u) {
+    if (!u.pt) return old.ghosts.call(this, u);
+    const g = u.g, it = Library.items[Library.selected], gk = this.curKey(), L = gk ? this.list(gk) : [], R = u.frame('Ghosts', it ? it.name + '  ·  ' + DIFFICULTIES[Settings.difficulty].name : 'Pick a song first', 'gh_back');
+    if (!L.length) { u.text('No saved runs on this song yet', UW / 2, R.y + 120, u.font(30, 700), C.tx, 'center'); u.wrap('Finish a Game run (not failed) and your best three are kept here.', UW / 2, R.y + 170, R.w - 40, u.font(23, 500), C.dim, 32, 3, 'center'); }
+    L.forEach((gh, i) => {
+      const y = R.y + i * 214; u.rr(R.x, y, R.w, 202, 18); g.fillStyle = 'rgba(255,255,255,0.06)'; g.fill();
+      u.text('#' + (i + 1), R.x + 20, y + 62, u.font(44, 900), i === 0 ? C.gd : C.tx); u.text((gh.s ? gh.s.toLocaleString() : '—') + (gh.g ? '   ' + gh.g : ''), R.x + 100, y + 56, u.font(38, 800), C.tx);
+      u.text(u.fit((gh.who ? 'from ' + gh.who + '  ·  ' : '') + (gh.d ? new Date(gh.d).toLocaleDateString() : 'older run') + '  ·  ' + fmtTime(gh.lat.length / 10), R.w - 120, u.font(20, 500)), R.x + 100, y + 92, u.font(20, 500), C.dim);
+      const bw = (R.w - 40 - 16) / 3; u.button('gh_ride:' + i, R.x + 20, y + 118, bw * 1.3, 66, 'Ride along', { primary: i === 0, size: 24, weight: 800 }); u.button('gh_share:' + i, R.x + 20 + bw * 1.3 + 8, y + 118, bw * 0.9, 66, 'Share', { size: 22, dis: !gh.s || UI.xr }); u.button('gh_del:' + i, R.x + 20 + bw * 2.2 + 16, y + 118, bw * 0.8, 66, 'Delete', { size: 20 });
+    });
+    u.button('gh_imp', R.x, R.b - 130, R.w, 70, 'Import ghost code', { size: 24, dis: UI.xr }); u.wrap('Ride along flies the journey ship exactly as that run did. Use Cockpit view to see it from their seat.', R.x + 4, R.b - 34, R.w - 8, u.font(19, 500), C.dim, 24, 2);
+  };
+}
 
 // ===== MIXED REALITY: passthrough on Quest 3 (and 2) =====
 // The game runs in an immersive-ar session. The sky, floor and fog become see-through veils (shader work lives in 07_render.js), and this module adds the room layer:
@@ -7497,7 +7600,7 @@ const Party = {
   ice: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }],
   prep: null, syncMsg: '', sync: null, xin: null, ask: '', role: null, st: 'idle', code: '', input: '', msg: '', gid: '', pid: 0, sess: 0, es: [], peers: new Map(), pc: null, dc: null,
   names: {}, tbl: {}, round: false, coop: false, drv: 0, hist: [], tx: 0, sendT: 0, miss: '', me: { fin: false }, ghostAt: {}, mk: null,
-  off: null, offS: [], T0: null, pingT: 0, pending: [], blocked: new Set(), auto: false, locked: false, openUntil: 0, cfg: null, cfgSig: '', tab: 'room', myRank: 0,
+  eo: null, offS: [], rtt: 0, T0: null, pingT: 0, pausedBy: '', pbT: 0, prevOrder: null, bannerT: 0, pending: [], blocked: new Set(), auto: false, locked: false, openUntil: 0, cfg: null, cfgSig: '', tab: 'room', myRank: 0,
   on() { return this.st === 'live' || this.round; },
   digits() { let s = ''; try { const a = new Uint32Array(8); crypto.getRandomValues(a); for (const v of a) s += v % 10; } catch (e) { for (let i = 0; i < 8; i++) s += (Math.random() * 10) | 0; } return s; },
   say(m, st) { this.msg = m; if (st) this.st = st; UI.dirty = true; },
@@ -7525,7 +7628,7 @@ const Party = {
   validSdp(o, type) { return o && typeof o.sdp === 'string' && o.sdp.length < 20000 && o.type === type; },
   // ---------- host ----------
   host() {
-    this.close(); this.role = 'host'; this.code = this.digits(); this.pid = 0; this.names = { 0: this.myName() }; this.st = 'live'; this.openUntil = performance.now() + 20 * 60000; this.say('Room ' + this.code.slice(0, 4) + ' ' + this.code.slice(4) + ' is open: friends choose Friends → Party → Join', 'live'); const id = this.sess;
+    this.close(); this.role = 'host'; this.code = this.digits(); this.pid = 0; this.names = { 0: this.myName() }; this.st = 'live'; this.openUntil = performance.now() + 20 * 60000; this.say('Room ' + this.code.slice(0, 4) + ' ' + this.code.slice(4) + ' open  ·  friends: Friends → Party → Join', 'live'); const id = this.sess;
     this.sub('j', (txt) => {
       let j; try { j = JSON.parse(txt); } catch (e) { return; } if (!j || id !== this.sess || !this.validG(j.g) || this.peers.has(j.g) || this.pending.some(q => q.g === j.g) || this.blocked.has(j.g)) return;
       const reply = (o) => this.post('o', Object.assign({ g: j.g }, o)).catch(() => {});
@@ -7564,7 +7667,7 @@ const Party = {
       if (!this.validSdp(o, 'offer')) return; got = true; clearTimeout(to); try { es.close(); } catch (e) {}
       try {
         this.say('Let in: connecting…', 'connecting'); const pc = this.pc = new RTCPeerConnection({ iceServers: this.ice });
-        pc.ondatachannel = (e) => { const dc = this.dc = e.channel; dc.binaryType = 'arraybuffer'; dc.onopen = () => { if (id !== this.sess) return; this.st = 'live'; this.say('Connected: wait for the host to start a song', 'live'); this.send({ k: 'hi', n: this.myName() }); for (let i = 0; i < 5; i++) setTimeout(() => this.send({ k: 'pi', c: performance.now() }), i * 250); }; dc.onclose = () => { if (id === this.sess && this.st === 'live') { this.say('Disconnected from the room', 'closed'); this.round = false; } }; dc.onmessage = (ev) => { if (id === this.sess) this.guestRecv(ev.data); }; };
+        pc.ondatachannel = (e) => { const dc = this.dc = e.channel; dc.binaryType = 'arraybuffer'; dc.onopen = () => { if (id !== this.sess) return; this.st = 'live'; this.say('Connected: wait for the host to start a song', 'live'); this.send({ k: 'hi', n: this.myName() }); for (let i = 0; i < 5; i++) setTimeout(() => this.send({ k: 'pi', c: performance.now() }), i * 250); }; dc.onclose = () => { if (id === this.sess && this.st === 'live') { const was = this.round && (Game.state === 'playing' || Game.state === 'paused'); this.say('Disconnected from the room', 'closed'); this.round = false; this.pausedBy = ''; if (was) { Game.quit(); Game.watch = false; Game.gunner = false; this.coop = false; UI.toast('The host left the room'); UI.set('party'); } } }; dc.onmessage = (ev) => { if (id === this.sess) this.guestRecv(ev.data); }; };
         pc.onconnectionstatechange = () => { if (id === this.sess && pc.connectionState === 'failed') this.say('Could not connect (a strict network or firewall?). Try again.', 'error'); };
         await pc.setRemoteDescription({ type: 'offer', sdp: o.sdp }); await pc.setLocalDescription(await pc.createAnswer()); await this.gathered(pc); if (id !== this.sess) return;
         await this.post('a', { g: this.gid, type: pc.localDescription.type, sdp: pc.localDescription.sdp });
@@ -7588,7 +7691,8 @@ const Party = {
     else if (m.k === 'pg') { if (st) { st.s = m.s === 'scan' ? 'scan' : 'recv'; st.pct = PN(m.pct, 0, 100, 0) | 0; UI.dirty = true; } }
     else if (m.k === 'rdy') { if (st) { this.prep.st[P.pid] = { s: 'ready', pct: 100 }; UI.dirty = true; this.prepCheck(); } }
     else if (m.k === 'fail') { if (st) { this.prep.st[P.pid] = { s: 'fail', pct: 0 }; UI.dirty = true; this.prepCheck(); } }
-    else if (m.k === 'pi') this.sendTo(P, { k: 'po', c: PN(m.c, 0, 1e12, 0), h: performance.now() });
+    else if (m.k === 'preq') { if (this.round && Game.state === 'playing') { this.pausedBy = P.name; Game.pause(); UI.set('pause'); if (UI.xr && typeof placePanel === 'function') placePanel(); this.bcast({ k: 'pz', on: 1, by: P.name }); } }
+    else if (m.k === 'pi') this.sendTo(P, { k: 'po', c: PN(m.c, 0, 1e12, 0), h: performance.now(), e: Date.now() });
     else if (m.k === 'hi') { P.name = cleanName(m.n, P.name); this.names[P.pid] = P.name; this.sendRoster(); }
     else if (m.k === 's') { const c = cleanState(m); c.at = performance.now(); c.i = P.pid; this.tbl[P.pid] = Object.assign(this.tbl[P.pid] || {}, c); if (this.coop && P.pid === this.drv && Game.gunner) this.feedCoop(c); }
     else if (m.k === 'rl') this.hostRelay(P, m);
@@ -7604,10 +7708,11 @@ const Party = {
     else if (m.k === 'rl') this.recvRelay(m.m, PN(m.f, 0, 7, 0) | 0);
     else if (m.k === 'tbl') { if (!Array.isArray(m.p)) return; for (const r0 of m.p.slice(0, PARTY_MAX)) { if (!r0 || typeof r0 !== 'object') continue; const i = PN(r0.i, 0, 7, -1) | 0; if (i < 0) continue; const r = cleanState(r0); r.i = i; if (this.coop && i === this.drv && Game.gunner) this.feedCoop(r); if (i === this.pid) continue; r.at = performance.now(); this.tbl[i] = Object.assign(this.tbl[i] || {}, r); } for (const k of Object.keys(this.tbl)) if (!(k in this.names)) delete this.tbl[k]; }
     else if (m.k === 'start') this.begin(m);
-    else if (m.k === 'po') { const now = performance.now(), c = PN(m.c, 0, 1e12, -1), h = PN(m.h, 0, 1e12, -1), rtt = now - c; if (c >= 0 && h >= 0 && rtt >= 0 && rtt < 4000) { this.offS.push({ rtt, off: h + rtt / 2 - now, at: now }); if (this.offS.length > 10) this.offS.shift(); const b = this.offS.reduce((a, x) => x.rtt < a.rtt ? x : a); this.off = b.off; this.rtt = b.rtt; } }
+    else if (m.k === 'po') { const now = performance.now(), c = PN(m.c, 0, 1e12, -1), e = PN(m.e, 0, 1e14, -1), rtt = now - c; if (c >= 0 && e >= 0 && rtt >= 0 && rtt < 4000) { this.offS.push({ rtt, eo: e + rtt / 2 - Date.now() }); if (this.offS.length > 12) this.offS.shift(); const b = this.offS.reduce((a, x) => x.rtt < a.rtt ? x : a); this.eo = b.eo; this.rtt = b.rtt; } }
+    else if (m.k === 'pz') { if (!this.round) return; if (m.on) { this.pausedBy = cleanName(m.by, 'Host'); if (Game.state === 'playing') { Game.pause(); UI.set('pause'); if (UI.xr && typeof placePanel === 'function') placePanel(); } UI.dirty = true; } else { this.pausedBy = ''; if (Game.state === 'paused') { Game.resume(); UI.set(null); } } }
     else if (m.k === 'late') { UI.toast('A song is already playing: you join at the next one'); }
     else if (m.k === 'end') { this.round = false; }
-    else if (m.k === 'lobby') { this.round = false; if (UI.screen === 'results' || UI.screen === 'rank') UI.set('party'); }
+    else if (m.k === 'lobby') { const was = this.round && (Game.state === 'playing' || Game.state === 'paused'); this.round = false; this.pausedBy = ''; if (was) { Game.quit(); Game.watch = false; Game.gunner = false; this.coop = false; UI.toast(cleanStr(m.why, 60) || 'Back to the room'); UI.set('party'); } else if (UI.screen === 'results' || UI.screen === 'rank') UI.set('party'); }
     else if (m.k === 'kick') { const why = cleanStr(m.why, 60); this.close(); this.say(why + '.', 'error'); UI.toast(why); }
   },
   // ---------- rounds ----------
@@ -7631,7 +7736,7 @@ const Party = {
   go(it) {
     this.say(this.count() + ' in the room', 'live'); this.tbl = {}; this.miss = ''; this.round = true; this.me = { fin: false };
     const coop = !!Settings.partyCoop && Settings.mode === 'drive' && this.count() >= 2, drv = (Settings.partyDriver in this.names) ? Settings.partyDriver | 0 : 0;
-    this.T0 = performance.now() + PARTY_LEAD * 1000;
+    this.T0 = Date.now() + PARTY_LEAD * 1000;
     this.bcast({ k: 'start', at: this.T0, key: it.key, name: cleanStr(it.name, 80), diff: Settings.difficulty, mode: Settings.mode, flight: !!Settings.flight, rules: Settings.rules, coop, driver: drv });
     this.setRole(coop, drv); UI.set(null); startSelected();
   },
@@ -7642,10 +7747,10 @@ const Party = {
     if (idx < 0 || L.items[idx].status !== 'ready') { this.round = false; this.miss = nm || 'this song'; this.say('The host started "' + this.miss + '" and you do not have it yet. Ask the host for another round and it will be sent to you.', 'live'); this.send({ k: 'miss' }); UI.toast('Missing song: ' + this.miss); return; }
     Settings.mode = m.mode; Settings.difficulty = PN(m.diff, 0, 3, 1) | 0; Settings.flight = !!m.flight; if (m.rules === 'shield' || m.rules === 'relaxed') Settings.rules = m.rules; L.selected = idx; this.miss = ''; applyModeView();
     if (Game.state === 'playing' || Game.state === 'paused') { try { AudioEng.stop(); } catch (e) {} Game.state = 'menu'; }
-    this.T0 = this.off == null ? performance.now() + PARTY_LEAD * 1000 : PN(m.at, 0, 1e13, 0) - this.off; if (!(this.T0 > performance.now() - 500 && this.T0 < performance.now() + 20000)) this.T0 = performance.now() + PARTY_LEAD * 1000;
+    { const ce = Math.abs(this.eo || 0) < 250 ? 0 : this.eo; this.T0 = PN(m.at, 0, 1e14, 0) - ce; if (!(this.T0 > Date.now() - 500 && this.T0 < Date.now() + 20000)) this.T0 = Date.now() + PARTY_LEAD * 1000; }   // both devices read their own clock (phones and headsets keep it within tens of ms); only if the clocks are clearly apart is the measured difference used
     this.setRole(!!m.coop && m.mode === 'drive', PN(m.driver, 0, 7, 0) | 0); startSelected(); UI.toast(this.coop ? (this.pid === this.drv ? 'Co-op: you DRIVE, the others shoot' : 'Co-op: you are the GUNNER, shoot for ' + (this.names[this.drv] || 'the driver')) : 'Party round: ' + (nm || 'song'));
   },
-  leadFor() { if (!this.round || this.T0 == null) return null; const l = (this.T0 - performance.now()) / 1000; this.T0 = null; return clamp(l, 0.4, 12); },   // seconds until the shared start moment: every device starts its song at the same wall-clock instant
+  leadFor() { if (!this.round || this.T0 == null) return null; const ac = AudioEng.ctx, ol = ac ? (ac.outputLatency || ac.baseLatency || 0) : 0, l = (this.T0 - Date.now()) / 1000 - Math.min(0.4, ol); this.T0 = null; return clamp(l, 0.4, 12); },   // seconds until the shared start moment: every device starts its song at the same wall-clock instant
   onStart() { if (this.round) { this.me = { fin: false }; this.tx = 0; this.mk = null; this.myRank = 0; if (this.coop) Game.coop = { role: this.pid === this.drv ? 'driver' : 'gunner' }; } },
   onEnd() {
     if (this.coop && Game.coop && Game.coop.role === 'driver') this.sendAll({ k: 'cend', failed: !!Game.failed, score: Game.score | 0 });
@@ -7656,6 +7761,7 @@ const Party = {
   me10() { const g = Game; return { mu: g.mult | 0, en: Math.round(g.energy), od: g.odActive ? 1 : 0, bh: g.boss && g.boss.st === 'fight' ? +(g.boss.hp / g.boss.hpMax).toFixed(3) : -1, k: 's', t: +g.songT.toFixed(2), l: Math.round(g.lat * 100), a: Math.round((g.alt || 0) * 100), sc: g.score | 0, cb: g.combo | 0, h: g.hits | 0, m: g.misses | 0 }; },
   tick(dt) {
     if (this.prep) { this.pk = (this.pk || 0) + dt; if (this.pk > 1) { this.pk = 0; this.prepCheck(); UI.dirty = true; } }
+    this.bk = (this.bk || 0) + dt; if (this.bk > 0.2 || (this._bd && this._bd.on && !this.inRound())) { const d = this.bk; this.bk = 0; this.boardUpdate(d); }
     if (this.role === 'host') {
       this.hk = (this.hk || 0) + dt; if (this.hk > 1) {
         this.hk = 0; const now = performance.now();
@@ -7778,6 +7884,49 @@ const Party = {
     for (const k of Object.keys(this.tbl)) { const i = +k, r = this.tbl[k]; if (i === this.pid || r.f || r.l === undefined || (r.at && now - r.at > 3500)) continue; out.push({ i, lat: r.l / 100, alt: r.a / 100, t: r.t || 0, col: PARTY_COL[i % PARTY_COL.length], name: this.names[i] || '', rank: rk[i] || 0 }); }
     return out;
   },
+  // ---------- pause, restart and leaving: the host's choices apply to everyone ----------
+  inRound() { return this.round && this.st === 'live'; },
+  onPauseKey(manual) {                                                    // true = pause this device now. The host pauses everyone; a guest asks the host to
+    if (!this.inRound() || Game.state !== 'playing') return true;
+    if (this.role === 'host') { this.pausedBy = this.myName(); this.bcast({ k: 'pz', on: 1, by: this.pausedBy }); return true; }
+    if (manual) { this.send({ k: 'preq' }); UI.toast('Asked the host to pause'); } return false;
+  },
+  intercept(id) {
+    if (!this.inRound()) return false; const host = this.role === 'host';
+    if (id === 'resume') { if (host) { this.pausedBy = ''; Game.resume(); UI.set(null); this.bcast({ k: 'pz', on: 0 }); } else UI.toast('The host resumes the game'); return true; }
+    if (id === 'restart' || id === 'retry') { if (host) { this.pausedBy = ''; const it = Library.items[Library.selected]; if (it && it.status === 'ready') this.go(it); } else { UI.toast('Only the host can restart'); if (Game.state === 'results') UI.set('party'); } return true; }
+    if (id === 'quit' || id === 'menu') { this.leaveRound(); return true; }
+    return false;
+  },
+  leaveRound() {                                                          // host: ends it for everyone. guest: drops out of this round (counts as out) and waits in the room
+    const live = Game.state === 'playing' || Game.state === 'paused', host = this.role === 'host';
+    if (!live) { if (host) this.act('pt_next', ['pt_next']); else UI.set('party'); return; }
+    if (host) this.bcast({ k: 'lobby', why: 'The host ended the round' }); else { const g = Game; this.send({ k: 'fin', sc: g.score | 0, mc: g.maxCombo | 0, fl: 1, ac: Math.round(100 * (g.hits || 0) / Math.max(1, (g.hits || 0) + (g.misses || 0))) }); }
+    this.round = false; this.pausedBy = ''; Game.quit(); Queue.end(); Game.watch = false; Game.gunner = false; this.coop = false; this.tbl = {}; UI.set('party');
+  },
+  // ---------- in-race scoreboard for flat screens (crisp HTML, sized to the screen) ----------
+  boardEl() {
+    if (this._bd) return this._bd; const st = document.createElement('style');
+    st.textContent = '#pboard{position:fixed;z-index:4;top:max(8px,env(safe-area-inset-top));left:max(62px,env(safe-area-inset-left));pointer-events:none;display:none;font:700 clamp(12px,2.4vmin,18px) system-ui,sans-serif;color:#eef3ff;background:rgba(8,4,28,.72);border:1px solid rgba(120,110,255,.4);border-radius:12px;padding:6px 8px;min-width:clamp(160px,28vmin,260px)}#pboard.on{display:block}#pboard .h{display:flex;justify-content:space-between;color:#98a1cc;font-size:.8em;letter-spacing:.06em;margin-bottom:3px}#pboard .r{position:relative;display:grid;grid-template-columns:1.5em 1fr auto;gap:6px;padding:3px 5px 5px;border-radius:7px;align-items:center}#pboard .r.me{background:rgba(25,227,255,.2)}#pboard .b{position:absolute;left:0;bottom:1px;height:3px;border-radius:2px;opacity:.7}#pboard .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#pboard .g{font-size:.85em;margin-top:3px;padding-left:5px}@media (orientation:portrait){#pboard{left:8px;right:112px;top:auto;bottom:max(14px,env(safe-area-inset-bottom));min-width:0;font-size:clamp(12px,3.3vmin,18px)}}#pbanner{position:fixed;z-index:5;left:50%;top:max(22%,90px);transform:translateX(-50%);pointer-events:none;font:900 clamp(18px,4vmin,30px) system-ui,sans-serif;color:#fff;background:rgba(8,4,28,.82);border:2px solid #ffd34d;border-radius:14px;padding:8px 18px;opacity:0;transition:opacity .25s;white-space:nowrap;max-width:94vw;overflow:hidden;text-overflow:ellipsis}#pbanner.on{opacity:1}';
+    document.head.appendChild(st); const b = document.createElement('div'); b.id = 'pboard'; document.body.appendChild(b); const n = document.createElement('div'); n.id = 'pbanner'; document.body.appendChild(n); return (this._bd = { b, n, key: '' });
+  },
+  boardUpdate(dt) {
+    const E = this.boardEl(), show = this.inRound() && !this.coop && !UI.xr && Game.state === 'playing' && !Game.journey;
+    if (!show) { if (E.on) { E.b.classList.remove('on'); E.n.classList.remove('on'); E.on = false; E.key = ''; } return; }
+    const s = this.standings(); if (s.length < 2) { if (E.on) { E.b.classList.remove('on'); E.on = false; } return; }
+    const me = s.findIndex(o => o.you), lead = Math.max(1, s[0].sc), esc = (t) => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    if (Game.songT > 2 && this.prevOrder && me >= 0) {                                            // say when places change hands
+      const was = this.prevOrder.indexOf(this.pid), ahead = new Set(this.prevOrder.slice(0, Math.max(0, was)));
+      if (this.myRank && me + 1 < this.myRank) { const passed = s.slice(me + 1).filter(o => ahead.has(o.i)).map(o => o.n); if (passed.length) this.banner('▲ You passed ' + passed.slice(0, 2).join(' and ')); }
+      else if (this.myRank && me + 1 > this.myRank && me > 0) this.banner('▼ ' + s[me - 1].n + ' passed you');
+    }
+    this.myRank = me + 1; this.prevOrder = s.map(o => o.i);
+    const gap = me === 0 ? '+' + (s[0].sc - s[1].sc).toLocaleString() + ' ahead of ' + s[1].n : '−' + (s[me - 1].sc - s[me].sc).toLocaleString() + ' behind ' + s[me - 1].n;
+    const html = '<div class="h"><span>PARTY</span><span>' + (me === 0 ? '👑 ' : '') + 'YOU ARE ' + (me + 1) + ' / ' + s.length + '</span></div>' + s.slice(0, 8).map(o => '<div class="r' + (o.you ? ' me' : '') + '"><span style="color:' + o.col + '">' + o.rank + '</span><span class="n">' + esc(o.n) + (o.f ? ' ✓' : '') + '</span><span>' + o.sc.toLocaleString() + '</span><i class="b" style="width:' + Math.max(2, Math.round(100 * o.sc / lead)) + '%;background:' + o.col + '"></i></div>').join('') + '<div class="g" style="color:' + (me === 0 ? '#46ffa0' : '#ffd34d') + '">' + esc(gap) + '</div>';
+    if (html !== E.key) { E.key = html; E.b.innerHTML = html; } if (!E.on) { E.b.classList.add('on'); E.on = true; }
+    if (this.bannerT > 0) { this.bannerT -= dt; if (this.bannerT <= 0) E.n.classList.remove('on'); }
+  },
+  banner(t) { const E = this.boardEl(); E.n.textContent = t; E.n.classList.add('on'); this.bannerT = 2.4; },
   // ---------- screen actions ----------
   songStep(d) { const L = Library, n = L.items.length; if (!n) return; for (let k = 1; k <= n; k++) { const j = (L.selected + d * k + n * 4) % n; if (L.items[j].status === 'ready') { L.selected = j; break; } } UI.dirty = true; },
   act(id, parts) {
@@ -7800,7 +7949,7 @@ const Party = {
     else if (a === 'pt_tab') { this.tab = parts[1] === 'setup' ? 'setup' : 'room'; UI.dirty = true; }
     else if (a === 'pt_next' && host) { this.bcast({ k: 'lobby' }); this.round = false; this.tbl = {}; UI.set('party'); }
     else if (a === 'pt_lobby') { UI.set('party'); }
-    else if (a === 'pt_leave') { this.close(); UI.dirty = true; }
+    else if (a === 'pt_leave') { if (host) this.bcast({ k: 'kick', why: 'The host closed the room' }); this.close(); UI.dirty = true; }
     else if (a === 'pt_back') UI.set(UI.screen === 'rank' ? 'results' : 'home');
     else if (a === 'pt_rank') UI.set('rank');
   }
@@ -7825,18 +7974,12 @@ Object.assign(Party, {
     const card = (id, x, y, title, l1, l2) => { u.button(id, x, y, cw, ch, '', { r: 24 }); u.text(title, x + cw / 2, y + ch * 0.36, u.font(P ? 38 : 30, 800), C.cy, 'center'); u.text(l1, x + cw / 2, y + ch * 0.6, u.font(P ? 24 : 20, 500), C.dim, 'center'); u.text(l2, x + cw / 2, y + ch * 0.6 + (P ? 36 : 30), u.font(P ? 24 : 20, 500), C.dim, 'center'); };
     card('pt_host', R.x, y0, 'HOST A ROOM', 'You choose the song, mode and difficulty.', 'You approve everyone who joins.');
     card('pt_join', P ? R.x : R.x + cw + 24, P ? y0 + ch + 24 : y0, 'JOIN A ROOM', 'Type the host\'s 8 digit room code.', 'The song is sent to you automatically.');
-    u.button('pt_name', R.x, P ? y0 + 2 * ch + 48 - 0 : y0 + ch + 20, R.w, P ? 64 : 44, '✎  Your name: ' + this.myName() + (UI.xr ? '  (tap for a new one)' : ''), { size: P ? 26 : 19 });
+    const vrOn = u.xr || u.xrOK, ny0 = P ? y0 + 2 * ch + 48 : y0 + ch + 20, nh = P ? 64 : 44, nw = vrOn ? R.w * 0.62 - 6 : R.w; if (vrOn) u.vrButton(R.x + nw + 12, ny0, R.w - nw - 12, nh, { size: P ? 24 : 18 });
+    u.button('pt_name', R.x, ny0, nw, nh, '✎  ' + this.myName() + (UI.xr ? '  (new name)' : ''), { size: P ? 26 : 19 });
     const ny = P ? y0 + 2 * ch + 150 : y0 + ch + 100, nf = u.font(P ? 22 : 17, 500);
     ['Everyone plays on their own device, so nobody lags.', 'Players connect directly to each other, which means they can see each other\'s', 'network address. Only join rooms run by people you know. The host approves every player.'].forEach((t, i) => u.text(t, UW / 2, ny + i * (P ? 32 : 26), nf, C.dim, 'center'));
   },
-  drawKeys(u, R) {
-    const P = u.pt, g = u.g, cell = P ? 66 : 54, gap = P ? 8 : 8, tw = 8 * cell + 7 * gap, x0 = (UW - tw) / 2, y0 = R.y + (P ? 70 : 34);
-    u.text(this.msg, UW / 2, y0 - 12, u.font(P ? 28 : 24, 700), C.tx, 'center');
-    for (let i = 0; i < 8; i++) { const x = x0 + i * (cell + gap); u.rr(x, y0 + 8, cell, cell * 1.2, 12); g.fillStyle = 'rgba(255,255,255,0.08)'; g.fill(); u.text(this.input[i] || '', x + cell / 2, y0 + 8 + cell * 0.88, u.font(P ? 44 : 38, 800), C.cy, 'center'); }
-    const kw = P ? 170 : 96, kh = P ? 104 : 62, kg = P ? 14 : 10, kx = (UW - (3 * kw + 2 * kg)) / 2, ky = y0 + cell * 1.2 + (P ? 60 : 36);
-    ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'x', '0'].forEach((k, i) => { const col = k === '0' ? 1 : i % 3, row = k === '0' ? 3 : (i / 3) | 0; u.button('pt_key:' + k, kx + col * (kw + kg), ky + row * (kh + kg), kw, kh, k === 'x' ? '⌫' : k, { size: P ? 44 : 30, weight: 800 }); });
-    u.button('pt_leave', kx, ky + 4 * (kh + kg) + (P ? 6 : 0), 3 * kw + 2 * kg, P ? 78 : 50, 'Cancel', { size: P ? 28 : 20 });
-  },
+  drawKeys(u, R) { u.keypad(R, 'pt_key', 8, this.input, this.msg, 'pt_leave'); },
   drawRoom(u, R) {
     const P = u.pt, g = u.g, host = this.role === 'host';
     if (!P) {
@@ -7844,10 +7987,10 @@ Object.assign(Party, {
       this.cfgBlock(u, R.x, R.y, lw, host); this.roomBlock(u, rx, R.y, rw, R.b - 64 - 10);
       if (host) u.button('pt_start', R.x, R.b - 64, lw, 64, this.prep ? 'GETTING EVERYONE READY…' : 'START FOR EVERYONE', { primary: true, size: 26, weight: 800, dis: !!this.prep });
       else u.text(u.fit(this.syncMsg || this.miss || 'The host starts the song when everyone is ready', lw, u.font(19, 600)), R.x, R.b - 26, u.font(19, 600), this.miss ? C.gd : C.cy);
-      u.button('pt_leave', rx, R.b - 52, rw, 52, host ? 'Close room' : 'Leave room', { size: 20 });
+      const vrw = (u.xr || u.xrOK) ? Math.round(rw * 0.42) : 0; if (vrw) u.vrButton(rx, R.b - 52, vrw - 8, 52, { size: 18 }); u.button('pt_leave', rx + vrw, R.b - 52, rw - vrw, 52, host ? 'Close room' : 'Leave room', { size: 20 });
     } else {
       const ty = R.y; u.button('pt_tab:room', R.x, ty, (R.w - 10) / 2, 60, 'ROOM  ·  ' + this.count() + '/' + PARTY_MAX, { size: 24, sel: this.tab === 'room' }); u.button('pt_tab:setup', R.x + (R.w + 10) / 2, ty, (R.w - 10) / 2, 60, 'GAME SETUP', { size: 24, sel: this.tab === 'setup' });
-      const bot = R.b - 100 - 14; if (this.tab === 'room') { this.roomBlock(u, R.x, ty + 74, R.w, bot - 74 - 70); u.button('pt_leave', R.x, bot - 62, R.w, 62, host ? 'Close room' : 'Leave room', { size: 24 }); } else this.cfgBlock(u, R.x, ty + 74, R.w, host);
+      const bot = R.b - 100 - 14; if (this.tab === 'room') { this.roomBlock(u, R.x, ty + 74, R.w, bot - 74 - 70); const vrw = (u.xr || u.xrOK) ? Math.round(R.w * 0.42) : 0; if (vrw) u.vrButton(R.x, bot - 62, vrw - 8, 62, { size: 22 }); u.button('pt_leave', R.x + vrw, bot - 62, R.w - vrw, 62, host ? 'Close room' : 'Leave room', { size: 24 }); } else this.cfgBlock(u, R.x, ty + 74, R.w, host);
       if (host) u.button('pt_start', R.x, R.b - 100, R.w, 100, this.prep ? 'GETTING EVERYONE READY…' : 'START FOR EVERYONE', { primary: true, size: 34, weight: 800, dis: !!this.prep });
       else u.text(u.fit(this.syncMsg || this.miss || 'Waiting for the host to start', R.w, u.font(26, 700)), UW / 2, R.b - 40, u.font(26, 700), this.miss ? C.gd : C.cy, 'center');
     }
@@ -7902,22 +8045,22 @@ Object.assign(Party, {
     const g = u.g; g.font = font; const words = String(t || '').split(' '); let line = '', n = 0; for (const wd of words) { const tt = line ? line + ' ' + wd : wd; if (g.measureText(tt).width > w && line) { u.text(line, x, y + n * lh, font, col); n++; line = wd; if (n >= maxLines) return; } else line = tt; } if (line) u.text(line, x, y + n * lh, font, col);
   },
   // ---------- in the race: a compact live leaderboard with score bars and the gap to the next place ----------
-  hudDraw(g) {
-    const s = this.standings(); if (s.length < 2) return; const me = s.findIndex(o => o.you); let show = s.slice(0, 4); if (me >= 4) show[3] = s[me];
-    const lead = Math.max(1, s[0].sc), rh = 23, w = 232, x = 8, y = 6, hh = 22; g.save(); g.textBaseline = 'middle';
-    UI.rr.call({ g }, x, y, w, hh + 6 + show.length * rh + 4, 10); g.fillStyle = 'rgba(8,4,28,0.66)'; g.fill();
-    g.font = UI.font(13, 800); g.textAlign = 'left'; g.fillStyle = '#98a1cc'; g.fillText('PARTY', x + 10, y + 13); g.textAlign = 'right'; g.fillStyle = me === 0 ? '#ffd34d' : '#fff'; g.fillText(me >= 0 ? 'YOU ARE ' + (me + 1) + ' / ' + s.length : s.length + ' PLAYERS', x + w - 10, y + 13);
+  hudDraw(g) {                                                            // VR only (flat screens use the HTML board): a bigger table with score bars and the gap to the next place
+    const s = this.standings(); if (s.length < 2) return; const me = s.findIndex(o => o.you); let show = s.slice(0, 5); if (me >= 5) show[4] = s[me];
+    const lead = Math.max(1, s[0].sc), rh = 30, w = 300, x = 8, y = 6, hh = 30; g.save(); g.textBaseline = 'middle';
+    UI.rr.call({ g }, x, y, w, hh + 8 + show.length * rh + 30, 12); g.fillStyle = 'rgba(8,4,28,0.72)'; g.fill();
+    g.font = UI.font(16, 800); g.textAlign = 'left'; g.fillStyle = '#98a1cc'; g.fillText('PARTY', x + 12, y + 17); g.textAlign = 'right'; g.fillStyle = me === 0 ? '#ffd34d' : '#fff'; g.fillText(me >= 0 ? 'YOU ARE ' + (me + 1) + ' / ' + s.length : s.length + ' PLAYERS', x + w - 12, y + 17);
     show.forEach((o, k) => {
-      const yy = y + hh + 4 + k * rh, cy = yy + rh / 2; if (o.you) { UI.rr.call({ g }, x + 4, yy, w - 8, rh - 2, 7); g.fillStyle = 'rgba(25,227,255,0.16)'; g.fill(); }
-      g.globalAlpha = 0.28; g.fillStyle = o.col; g.fillRect(x + 28, yy + rh - 5, Math.max(2, (w - 40) * o.sc / lead), 3); g.globalAlpha = 1;
-      g.font = UI.font(14, 900); g.fillStyle = o.col; g.textAlign = 'left'; g.fillText(String(o.rank), x + 10, cy); g.font = UI.font(14, o.you ? 900 : 600); g.fillStyle = o.you ? '#fff' : '#cfe'; g.fillText((o.n || '').slice(0, 9), x + 28, cy - 1); g.textAlign = 'right'; g.fillText((o.f ? '✓ ' : '') + o.sc.toLocaleString(), x + w - 10, cy - 1);
+      const yy = y + hh + 6 + k * rh, cy = yy + rh / 2 - 1; if (o.you) { UI.rr.call({ g }, x + 5, yy, w - 10, rh - 2, 8); g.fillStyle = 'rgba(25,227,255,0.2)'; g.fill(); }
+      g.globalAlpha = 0.5; g.fillStyle = o.col; g.fillRect(x + 34, yy + rh - 6, Math.max(3, (w - 48) * o.sc / lead), 3); g.globalAlpha = 1;
+      g.font = UI.font(19, 900); g.fillStyle = o.col; g.textAlign = 'left'; g.fillText(String(o.rank), x + 12, cy); g.font = UI.font(19, o.you ? 900 : 600); g.fillStyle = o.you ? '#fff' : '#d8ecff'; g.fillText((o.n || '').slice(0, 9) + (o.f ? ' ✓' : ''), x + 34, cy); g.textAlign = 'right'; g.fillText(o.sc.toLocaleString(), x + w - 12, cy);
     });
-    if (me >= 0 && s.length > 1) { const d = me === 0 ? s[0].sc - s[1].sc : s[me - 1].sc - s[me].sc, tx = me === 0 ? '+' + d.toLocaleString() + ' ahead of ' + s[1].n.slice(0, 8) : '−' + d.toLocaleString() + ' to catch ' + s[me - 1].n.slice(0, 8); g.font = UI.font(13, 700); g.textAlign = 'left'; g.fillStyle = me === 0 ? '#46ffa0' : '#ffd34d'; g.fillText(tx, x + 10, y + hh + 8 + show.length * rh + 12); }
+    if (me >= 0) { const d = me === 0 ? s[0].sc - s[1].sc : s[me - 1].sc - s[me].sc, tx = me === 0 ? '+' + d.toLocaleString() + ' ahead of ' + s[1].n.slice(0, 9) : '−' + d.toLocaleString() + ' behind ' + s[me - 1].n.slice(0, 9); g.font = UI.font(16, 700); g.textAlign = 'left'; g.fillStyle = me === 0 ? '#46ffa0' : '#ffd34d'; g.fillText(tx, x + 12, y + hh + 14 + show.length * rh + 6); }
     g.restore();
   },
   // ---------- rankings ----------
   drawResults(u) {
-    const P = u.pt, g = u.g, s = this.standings(), R = u.frame('Rankings', this.round ? 'Waiting for everyone to finish…' : 'Final scores', 'pt_back'), host = this.role === 'host';
+    const P = u.pt, g = u.g, s = this.standings(), R = u.frame('Rankings', s.some(o => !o.f) ? 'Waiting for everyone to finish…' : 'Final scores', 'pt_back'), host = this.role === 'host';
     const bh = P ? 84 : 58, by = R.b - bh, n = Math.max(1, Math.min(8, s.length)), avail = by - 14 - (R.y + 6), rh = Math.min(P ? 110 : 62, Math.floor((avail - (n - 1) * 8) / n)), top = Math.max(1, s[0] ? s[0].sc : 1), medal = ['🥇', '🥈', '🥉'];
     s.slice(0, 8).forEach((o, k) => {
       const y = R.y + 6 + k * (rh + 8), big = k === 0; u.rr(R.x, y, R.w, rh, 16); g.fillStyle = o.you ? 'rgba(25,227,255,0.18)' : 'rgba(255,255,255,0.07)'; g.fill(); if (big) { g.lineWidth = 3; g.strokeStyle = '#ffd34d'; g.stroke(); }
@@ -8283,27 +8426,20 @@ const Spectate = {
     else if (a === 'sp_back') { if (this.st !== 'live') this.close(); UI.set(Game.watch && Game.state !== 'menu' ? 'pause' : 'home'); }
   },
   draw(u) {
-    const g = u.g; u.panelBG(4, 4, UW - 8, UH - 8); u.title('Spectate', 'One plays, one watches: no lag for the player');
-    u.button('sp_back', 836, 26, 162, 50, 'Back', { size: 22 });
+    const P = u.pt, g = u.g, R = u.frame('Friends', 'Play together, or let a friend watch', 'sp_back');
     const live = this.st === 'live', busy = this.st === 'opening' || this.st === 'waiting' || this.st === 'connecting';
     if (!this.role && !this.msg) {
-      u.button('sp_party', 30, 130, 320, 190, '', { r: 22, primary: true }); u.text('PARTY', 190, 196, u.font(30, 900), C.gd, 'center'); u.text('Up to 8 players race the', 190, 238, u.font(18, 500), C.dim, 'center'); u.text('same song, any device.', 190, 264, u.font(18, 500), C.dim, 'center');
-      u.button('sp_host', 352, 130, 320, 190, '', { r: 22 }); u.text('LET A FRIEND WATCH', 512, 200, u.font(22, 800), C.cy, 'center'); u.text('You play as normal.', 512, 242, u.font(18, 500), C.dim, 'center'); u.text('You get a code to give them.', 512, 268, u.font(18, 500), C.dim, 'center');
-      u.button('sp_watch', 674, 130, 320, 190, '', { r: 22 }); u.text('WATCH A FRIEND', 834, 200, u.font(22, 800), C.cy, 'center'); u.text('Type their room code.', 834, 242, u.font(18, 500), C.dim, 'center'); u.text('Same song needed.', 834, 268, u.font(18, 500), C.dim, 'center');
-      u.text('Works in Game and Journey modes. Connects directly between your devices (a free public relay only helps them find each other).', UW / 2, 380, u.font(17, 500), C.dim, 'center');
+      const cards = [['sp_party', 'PARTY', 'Up to 8 players race the same song on any device.', true], ['sp_host', 'LET A FRIEND WATCH', 'You play as normal and get a code to give them.', false], ['sp_watch', 'WATCH A FRIEND', 'Type their code. You need the same song.', false]];
+      if (P) { const ch = 190, gp = 18, y0 = R.y + 10; cards.forEach((c, i) => u.card(c[0], R.x, y0 + i * (ch + gp), R.w, ch, c[1], c[2], { primary: c[3] })); u.vrButton(R.x, y0 + 3 * (ch + gp), R.w, 70, {}); u.wrap('Watching works in Game and Journey modes. Players connect directly to each other, so they can see each other\'s network address: only join people you know.', R.x + 4, R.b - 80, R.w - 8, u.font(20, 500), C.dim, 26, 4); }
+      else { const gp = 20, cw = (R.w - 2 * gp) / 3, ch = 220, y0 = R.y + 20; cards.forEach((c, i) => u.card(c[0], R.x + i * (cw + gp), y0, cw, ch, c[1], c[2], { primary: c[3] })); u.vrButton(R.x, y0 + ch + 30, 260, 54, {}); u.wrap('Watching works in Game and Journey modes. Players connect directly to each other, so they can see each other\'s network address: only join people you know.', R.x + 4, y0 + ch + 130, R.w - 8, u.font(17, 500), C.dim, 24, 3); }
       return;
     }
-    if (this.role === 'pick') {
-      u.text(this.msg, UW / 2, 140, u.font(24, 700), C.tx, 'center');
-      for (let i = 0; i < 6; i++) { const x = 332 + i * 60; u.rr(x, 162, 52, 66, 12); g.fillStyle = 'rgba(255,255,255,0.08)'; g.fill(); u.text(this.input[i] || '', x + 26, 210, u.font(40, 800), C.cy, 'center'); }
-      const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'x', '0']; keys.forEach((k, i) => { const x = 392 + (i % 3) * 86, y = 250 + ((i / 3) | 0) * 66; u.button('sp_key:' + k, x, y, 78, 58, k === 'x' ? '⌫' : k, { size: 28, weight: 800 }); });
-      return;
-    }
+    if (this.role === 'pick') { u.keypad(R, 'sp_key', 6, this.input, this.msg, 'sp_stop'); return; }
     const big = this.role === 'host' && this.code && (busy || live) ? this.code.slice(0, 3) + ' ' + this.code.slice(3) : '';
-    if (big) u.text(big, UW / 2, 220, u.font(110, 900), C.gd, 'center');
-    u.text(this.msg, UW / 2, big ? 300 : 230, u.font(24, 700), this.st === 'error' ? C.red : live ? C.ok : C.tx, 'center');
-    if (this.miss) u.text('Missing song: ' + this.miss, UW / 2, 350, u.font(20, 600), C.gd, 'center');
-    u.button('sp_stop', 312, 470, 400, 64, live || busy ? 'Stop' : 'OK', { size: 26, weight: 800 });
+    let y = R.y + (P ? 90 : 60); if (big) { u.text('ROOM CODE', UW / 2, y - 30, u.font(P ? 22 : 16, 700), C.dim, 'center'); u.text(big, UW / 2, y + (P ? 80 : 90), u.font(P ? 110 : 110, 900), C.gd, 'center'); y += P ? 140 : 150; }
+    y = u.wrap(this.msg, UW / 2, y + 40, R.w - 40, u.font(P ? 28 : 24, 700), this.st === 'error' ? C.red : live ? C.ok : C.tx, P ? 38 : 32, 4, 'center');
+    if (this.miss) u.wrap('Missing song: ' + this.miss, UW / 2, y + 20, R.w - 40, u.font(P ? 24 : 20, 600), C.gd, 30, 2, 'center');
+    u.button('sp_stop', P ? R.x : UW / 2 - 200, R.b - (P ? 100 : 80), P ? R.w : 400, P ? 90 : 64, live || busy ? 'Stop' : 'OK', { size: 26, weight: 800 });
   }
 };
 
@@ -8371,6 +8507,154 @@ const Tunnel = {
   }
 };
 
+// ===== GUIDE: how to play every mode and use every control, for VR, phones and computers. One responsive screen: the wide panel (flat screens and the VR panel) or the tall phone canvas. =====
+// Pages are lists of blocks: ['h', heading], ['p', text], ['li', text], ['k', key, text], ['tip', text]. Platform-specific pages show a Phone / VR / Computer switch. Long pages scroll (buttons, swipe, wheel, or the thumbstick in VR).
+const TUT_PLAT = [['phone', 'Phone'], ['vr', 'VR headset'], ['pc', 'Computer']];
+const TUT_PAGES = [
+  { id: 'start', t: 'Welcome', sub: 'The idea in one minute', b: () => [
+    ['p', 'DMT Surf turns any song into a track. Your ship rides a neon road that bends, rises and pulses with the music, and the notes are placed on the beat.'],
+    ['h', 'Getting going'], ['li', 'Pick a song on the home screen (three are built in), press PLAY, then choose a mode and difficulty.'], ['li', 'Add your own music with + Add on the flat page, or search thousands of Beat Saber maps with Search.'], ['li', 'Hit READY, START. The countdown gives you a few seconds to settle in.'],
+    ['h', 'What the numbers mean'], ['k', 'Score', 'Every note you get scores points. Perfect timing scores more.'], ['k', 'Multiplier', 'Build a combo to raise it (x2, x4, x8). A miss or crash drops it.'], ['k', 'Streaks', 'Long runs earn HEATING UP, ON FIRE, ASCENDED and TRANSCENDENT.'], ['k', 'Grades', 'S, A, B, C, D, F at the end, from your accuracy and score.'],
+    ['h', 'Staying alive'], ['p', 'Misses and crashes drain the rock meter (the coloured bar). If it empties the show is over, unless you turn Deaths off or choose Relaxed rules in Settings. Game mode also gives you three shields.'],
+    ['h', 'Overdrive (star power)'], ['p', 'Good play fills the star meter. With it at half or more, press the overdrive control for a burst of double points. Controls for each device are on the Controls page.'],
+    ['tip', 'New? Start on Chill, Game mode. Everything else is the same skills in different clothes.']] },
+  { id: 'game', t: 'Game mode', sub: 'Collect, dodge, turn', b: () => [
+    ['p', 'The classic. Five lanes of glowing gems and hazards stream towards you down the road.'],
+    ['h', 'What to do'], ['li', 'Steer your ship through gems to collect them, in time with the music.'], ['li', 'Dodge spikes and walls. Each hit costs a shield and a chunk of the meter.'], ['li', 'Long gem trails are streaks: stay in the lane and hold the line.'], ['li', 'The road makes hard corners at big moments. Notes sit on the inside lanes around them, so just follow the notes.'],
+    ['h', 'Flight (optional)'], ['p', 'With Flight on in Settings some targets float high. Fly up to collect them: lift your pointing hand, push a thumbstick up, slide a finger up the screen, or hold W / Up. Some big moments flip or roll the world, with a countdown first.'],
+    ['h', 'Ghosts'], ['p', 'Your best three clean runs on each song are saved. Open Ghosts on the Ready screen to ride against one, or share it with a friend.'],
+    ['tip', 'Cockpit view puts you in the pilot seat. Chase view is easier to read on a small screen.']] },
+  { id: 'saber', t: 'Sabers', sub: 'Slice the beat', b: (p) => [
+    ['p', 'Cubes fly at you in two colours. Slice each one with the matching blade, and keep clear of the mines.'],
+    ['h', 'The rules'], ['li', 'Red blade in your left hand, blue in your right.'], ['li', 'Slice through the cube in the direction of its arrow. A dot means any direction.'], ['li', 'Never touch a mine or wall with a blade.'], ['li', 'Fast, clean swings score the most.'],
+    ['h', p === 'vr' ? 'In VR' : p === 'phone' ? 'On a phone' : 'On a computer'],
+    p === 'vr' ? ['p', 'Swing the controllers like real blades. You stand at the centre of the beat, so there is no steering.'] : p === 'phone' ? ['p', 'Swipe across the cubes with your fingers. Use two thumbs: each touch is a blade.'] : ['p', 'Move the mouse across the cubes, or use touch if your screen has it. Hold the button down to keep the blade active.'],
+    ['tip', 'Seated or low on reach? Turn on Seated / reach assist under Comfort for lower targets and a bigger hit area.']], plat: true },
+  { id: 'punch', t: 'Punch', sub: 'Smash the beat', b: (p) => [
+    ['p', 'Orbs fly at you in two colours. Smash each one with the fist of the same colour, on the beat.'],
+    ['h', 'The rules'], ['li', 'Red fist on the left, blue on the right.'], ['li', 'Hit the orbs in your colour only. Wrong colour and mines cost you.'], ['li', 'Hit harder and closer to the beat for a perfect.'],
+    ['h', p === 'vr' ? 'In VR' : p === 'phone' ? 'On a phone' : 'On a computer'],
+    p === 'vr' ? ['p', 'Punch with the controllers. Hand tracking works too if your headset has it turned on.'] : p === 'phone' ? ['p', 'Tap the orbs. Use both thumbs for the two colours.'] : ['p', 'Click the orbs with the mouse.'],
+    ['tip', 'Warm up on Chill. This one is a workout on Hard and Extreme.']], plat: true },
+  { id: 'drive', t: 'Drive-by', sub: 'Twin pistols', b: (p) => [
+    ['p', 'Fly the road and shoot. Pistols can pop spikes, hazards and the gems themselves, and every shot on the beat scores extra.'],
+    ['h', 'What to do'], ['li', 'Shoot gems in the music\'s rhythm. The on-beat streak counter (RHYTHM) builds a bonus.'], ['li', 'Shoot spikes and walls to clear them instead of dodging.'], ['li', 'Bosses fly in at big moments. Hit them again and again to bring them down.'], ['li', 'Boss fireballs come at your lane. Shoot them down or move.'], ['li', 'Star Power gives a wider aim for a few seconds.'],
+    ['h', p === 'vr' ? 'In VR' : p === 'phone' ? 'On a phone' : 'On a computer'],
+    p === 'vr' ? ['p', 'Point and pull the trigger of your shooting hand. The other hand steers. Pick which hand shoots in Settings (Shooting hand).'] : p === 'phone' ? ['p', 'Tap where you want to shoot. Steer with a second finger, or let tilt steering help.'] : ['p', 'Click where you want to shoot, or press Z / X / J / K to fire straight ahead.'],
+    ['h', 'Teamwork with friends'], ['p', 'In a Party, Drive-by can be Co-op: one person drives and the others are gunners on their own devices. The gunners\' shots hit the driver\'s targets and the driver sees fireballs they send.'],
+    ['tip', 'One shot per trigger pull, click or tap. Timing beats speed.']], plat: true },
+  { id: 'guitar', t: 'Guitar', sub: 'Frets and strum', b: () => [
+    ['p', 'Play along like a rhythm-guitar game. Hold the fret colours, then strum on the beat.'],
+    ['h', 'The rules'], ['li', 'Hold the fret buttons that match the gems, then strum.'], ['li', 'Chords need every fret held together. Sustains need you to keep holding.'], ['li', 'Star phrases (shining notes) fill the star meter. Use overdrive to cash it in.'], ['li', 'Clone Hero charts play exactly as written, and you can pick lead, bass or rhythm.'],
+    ['h', 'Setting up'], ['p', 'Choose Guitar on the Ready screen, then open Guitar and follow the steps to teach the game your controller or keyboard keys. You can also set a latency offset there.'],
+    ['tip', 'Add Clone Hero songs from the flat page with the Clone Hero add options.']] },
+  { id: 'journey', t: 'Journey', sub: 'Just the visuals', b: () => [
+    ['p', 'No score, no failing. The autopilot flies and you just enjoy the music and the show.'],
+    ['li', 'Steer any time to take over, and let go to hand back to the autopilot.'], ['li', 'Great with Cockpit view, a headset, and a favourite song.'], ['li', 'You can also ride along with a saved ghost run from the Ghosts screen.'],
+    ['tip', 'Scenes change with the song. Pick the scene style (including Happy only) in Settings.']] },
+  { id: 'controls', t: 'Controls', sub: 'Pick your device', plat: true, b: (p) => p === 'vr' ? [
+    ['h', 'Steering (Settings > Steering)'], ['k', 'Point', 'The default. Aim a controller down the road and the ship follows where you point. Tilt it up to fly up.'], ['k', 'Grip', 'Squeeze a grip and drag sideways. Squeeze both and turn them like a wheel.'], ['k', 'Stick', 'Thumbstick left and right.'], ['k', 'Lean', 'Lean your head to the side.'],
+    ['p', 'Either thumbstick can steer at any time as a back-up.'],
+    ['h', 'Buttons in a run'], ['k', 'Trigger / A / X / grip', 'Overdrive (in Drive-by the trigger of your shooting hand fires).'], ['k', 'B / Y', 'Pause. The host\'s pause pauses a Party for everyone.'],
+    ['h', 'Menus'], ['k', 'Trigger', 'Click what you are pointing at.'], ['k', 'Stick up / down', 'Scroll lists and this guide.'], ['k', 'A / X', 'OK (play or resume).'], ['k', 'B / Y', 'Back.'], ['k', 'Stick click', 'Recentre the view.'],
+    ['h', 'Stick drift'], ['p', 'If your ship wanders or stops following your hand, raise Stick dead zone in Settings. Ignore stuck stick (on by default) already ignores a stick that sits off-centre without moving.'],
+    ['tip', 'Recentre if the menu or track is not in front of you: Recenter on the home screen, or click a thumbstick.']
+  ] : p === 'phone' ? [
+    ['h', 'Steering'], ['k', 'Tap or drag', 'Your ship goes to your finger. The screen is five columns, one per lane. Slide along to glide, tap a column to jump.'], ['k', 'Finger height', 'With Flight on, the higher your finger the higher your ship. Slide up the screen to climb, let go to come down.'], ['k', 'Tilt', 'Tilt the phone like a steering wheel for extra help. Change or turn off in Settings (Phone tilt steering).'], ['p', 'Other touch styles (Tap sides, Drag, Slide) are under Settings > Touch steering.'],
+    ['h', 'Buttons'], ['k', 'Star button (bottom right)', 'Overdrive.'], ['k', 'Pause button (top right)', 'Pause. In a Party the host decides, so yours asks the host.'], ['k', 'Full screen (top left)', 'Full screen where your browser allows it.'],
+    ['h', 'Modes'], ['k', 'Sabers', 'Swipe through the cubes.'], ['k', 'Punch', 'Tap the orbs.'], ['k', 'Drive-by', 'Tap where you want to shoot.'],
+    ['h', 'Portrait or landscape'], ['p', 'Both work. Menus and Party fit portrait, and the game fills the screen either way. Landscape gives a wider view of the road.'],
+    ['tip', 'Wired or low-latency headphones help timing. Calibrate audio in Settings if hits feel early or late.']
+  ] : [
+    ['h', 'Steering'], ['k', 'Mouse', 'Move left and right to steer. Top of the screen flies high.'], ['k', '← → or A D', 'Steer.'], ['k', '1 to 5', 'Jump straight to a lane.'], ['k', '↑ W Shift', 'Fly up (Flight).'], ['k', '↓ S Ctrl', 'Dive (Flight).'],
+    ['h', 'Actions'], ['k', 'E or right click', 'Overdrive.'], ['k', 'Z X J K or click', 'Shoot in Drive-by.'], ['k', 'Esc or P', 'Pause or back.'], ['k', 'Space or Enter', 'OK / start / resume.'], ['k', 'R', 'Restart from pause or results.'], ['k', 'C', 'Recentre.'], ['k', 'V', 'Switch Chase and Cockpit view.'],
+    ['p', 'A gamepad works too if your browser can see it. Touch screens use the phone controls.'],
+    ['tip', 'On a computer you can also type into the search box directly.']
+  ] },
+  { id: 'songs', t: 'Songs & sets', sub: 'Your music, your maps', b: () => [
+    ['h', 'Adding songs'], ['li', '+ Add file: any mp3, ogg, wav or similar. The game analyses it once and keeps it.'], ['li', 'Search: thousands of Beat Saber maps from BeatSaver. Filter by genre, rating or year, tap GET, and it is added.'], ['li', 'Clone Hero charts can be added too, for Guitar mode.'],
+    ['h', 'Organising'], ['k', '★', 'Favourite a song. Save favs and Load favs back them up or move them to another device.'], ['k', '+Q', 'Line songs up in order and press PLAY SET to play them back to back.'], ['k', 'Speed', 'Track speed from 0.7x to 1.4x makes any song easier or harder.'],
+    ['h', 'Maps and analysis'], ['p', 'Beat Saber maps can play as written, or use the game\'s own analysis, or both together (Chart source on the Ready screen). Your best score and grade show per song and difficulty.'],
+    ['tip', 'On a headset, add files from a computer or phone first (the file picker is on the flat page), then they appear in VR.']] },
+  { id: 'party', t: 'Party', sub: 'Up to 8 players', b: () => [
+    ['p', 'Race the same song with friends. Everyone plays on their own device, headset, phone or computer, in the same game mode.'],
+    ['h', 'Hosting'], ['li', 'Friends > Party > Host a room. You get an 8 digit code.'], ['li', 'You approve everyone who joins. You can lock the room, turn on auto-accept, or remove people.'], ['li', 'You pick the song, mode and difficulty. Everyone else gets the song sent automatically if they do not have it.'],
+    ['h', 'Joining'], ['li', 'Friends > Party > Join a room, then type the code and wait for the host to let you in.'], ['li', 'You choose your own view (Chase or Cockpit) and how rivals look: ghost ships on your track, or small side tracks.'],
+    ['h', 'In the race'], ['li', 'The scoreboard shows everyone, with a bar for each and your gap to the next place.'], ['li', 'The host\'s pause, restart and quit apply to everyone. A guest\'s pause asks the host.'], ['li', 'Rankings come up at the end. The host takes everyone back to the room for the next song.'],
+    ['h', 'Safety'], ['p', 'Players connect directly, so they can see each other\'s network address. Only join people you know and only share your code with them.'],
+    ['tip', 'You can enter or leave VR from the Party menu.']] },
+  { id: 'comfort', t: 'Comfort & speed', sub: 'Feel good, run well', b: () => [
+    ['h', 'Comfort (Settings > Comfort)'], ['k', 'Reduce motion', 'No camera shake, bumps or zoom pulses.'], ['k', 'Reduce flashing', 'Softer beat flashes, no lightning.'], ['k', 'Steady horizon', 'No banking, tilting or hills. The road still bends.'], ['k', 'Gentle scenes', 'No horror or uncanny scenes.'], ['k', 'Vignette', 'Darkens the edges while you move. On by default in VR.'],
+    ['h', 'Smooth running'], ['li', 'Quality Auto adjusts for your device and drops detail if the game struggles.'], ['li', 'On a slow phone choose Low quality in Settings.'], ['li', 'On a headset, pick a lower Resolution or refresh rate if you see judder.'],
+    ['h', 'Timing'], ['li', 'If hits feel early or late, use Calibrate audio in Settings and tap along with the clicks.'], ['li', 'Bluetooth headphones delay sound. Wired headphones are best.'],
+    ['h', 'VR thumbstick drift'], ['li', 'Raise Stick dead zone in Settings if your ship drifts on its own.'], ['li', 'Ignore stuck stick keeps a drifting stick from taking over.'],
+    ['tip', 'Take a break every 20 to 30 minutes in VR, and stop if you feel unwell.']] },
+  { id: 'help', t: 'Troubleshooting', sub: 'Common problems', b: () => [
+    ['k', 'Ship drifts on its own', 'Stick drift. Raise Stick dead zone in Settings, or recentre.'], ['k', 'Hits feel early / late', 'Settings > Calibrate audio, or change Audio offset.'], ['k', 'Game is laggy', 'Settings > Quality: Low. On a phone close other tabs.'], ['k', 'Song stuck analysing', 'Give it a minute, large files take longer. Remove and re-add if it fails.'], ['k', 'No VR button', 'Your browser needs WebXR (Quest Browser works). Use https.'], ['k', 'Party cannot connect', 'Try another network. Some school, work or mobile networks block direct connections.'], ['k', 'Party songs off by a beat', 'Everyone should wait for the countdown. Devices read their clocks, so check the time is automatic on each.'], ['k', 'Menu in the wrong place (VR)', 'Click a thumbstick or press Recenter.'],
+    ['tip', 'Still stuck? Reload the page. Your songs, settings and scores are saved on the device.']] }
+];
+const Tut = {
+  page: 0, plat: null, top: 0, toc: false, from: 'home', _lay: null, _key: '', _max: 0, view: { h: 400 },
+  open(from) { this.from = from || UI.screen || 'home'; this.toc = false; this.top = 0; if (!this.plat) this.plat = UI.xr ? 'vr' : (typeof TOUCH !== 'undefined' && TOUCH ? 'phone' : 'pc'); UI.set('tutorial'); },
+  close() { UI.set(this.from === 'tutorial' || !this.from ? 'home' : this.from); },
+  go(i) { this.page = (i + TUT_PAGES.length) % TUT_PAGES.length; this.top = 0; this.toc = false; this._key = ''; UI.dirty = true; },
+  scroll(d) { if (this.toc) return; this.top = clamp(this.top + d * 90, 0, Math.max(0, this._max)); UI.dirty = true; },
+  act(id, parts) {
+    const a = parts[0];
+    if (a === 'tut_open') this.open(UI.screen === 'tutorial' ? 'home' : UI.screen);
+    else if (a === 'tut_back') this.close();
+    else if (a === 'tut_prev') this.go(this.page - 1);
+    else if (a === 'tut_next') this.go(this.page + 1);
+    else if (a === 'tut_toc') { this.toc = !this.toc; UI.dirty = true; }
+    else if (a === 'tut_pg') this.go(+parts[1] | 0);
+    else if (a === 'tut_plat') { this.plat = parts[1]; this.top = 0; this._key = ''; UI.dirty = true; }
+    else if (a === 'tut_up') this.scroll(-3);
+    else if (a === 'tut_dn') this.scroll(3);
+  },
+  layout(u, blocks, w, P) {                                                // measure everything once per page / width / platform
+    const g = u.g, key = this.page + '|' + this.plat + '|' + w + '|' + P; if (this._key === key && this._lay) return this._lay;
+    const S = P ? 1.18 : 1, F = (sz, wt) => u.font(Math.round(sz * S), wt), out = []; let y = 0;
+    const lines = (t, font, maxW) => { g.font = font; const ws = String(t).split(' '), ls = []; let l = ''; for (const wd of ws) { const tt = l ? l + ' ' + wd : wd; if (g.measureText(tt).width > maxW && l) { ls.push(l); l = wd; } else l = tt; } if (l) ls.push(l); return ls; };
+    for (const b of blocks) {
+      if (!b) continue; const k = b[0];
+      if (k === 'h') { y += out.length ? Math.round(16 * S) : 0; out.push({ k, y, t: b[1], font: F(24, 800) }); y += Math.round(38 * S); }
+      else if (k === 'p') { const f = F(19, 500), ls = lines(b[1], f, w), lh = Math.round(27 * S); out.push({ k, y, ls, font: f, lh }); y += ls.length * lh + Math.round(8 * S); }
+      else if (k === 'li') { const f = F(19, 500), ls = lines(b[1], f, w - Math.round(26 * S)), lh = Math.round(27 * S); out.push({ k, y, ls, font: f, lh }); y += ls.length * lh + Math.round(5 * S); }
+      else if (k === 'k') { const kw = P ? Math.min(w * 0.4, 236) : Math.min(w * 0.3, 238), f = F(19, 500), ls = lines(b[2], f, w - kw - 24), lh = Math.round(26 * S), kf = F(17, 800), kl = lines(b[1], kf, kw - 20), hh = Math.max(ls.length * lh, kl.length * Math.round(23 * S) + 10); out.push({ k, y, ls, kl, kw, font: f, kf, lh, hh, kh: Math.round(23 * S) }); y += hh + Math.round(10 * S); }
+      else if (k === 'tip') { const f = F(18, 600), ls = lines(b[1], f, w - 40), lh = Math.round(26 * S); out.push({ k, y: y + 8, ls, font: f, lh }); y += ls.length * lh + Math.round(34 * S); }
+    }
+    this._key = key; this._lay = { items: out, h: y }; return this._lay;
+  },
+  draw(u) {
+    const P = u.pt, g = u.g, pg = TUT_PAGES[this.page], R = u.frame('How to play', pg.t + '  ·  ' + pg.sub, 'tut_back', 'Done');
+    if (this.toc) {
+      u.text('Pick a topic', R.x + 4, R.y + 14, u.font(P ? 26 : 21, 700), C.dim); const cols = P ? 2 : 3, gap = 10, n = TUT_PAGES.length, rows = Math.ceil(n / cols), bw = (R.w - gap * (cols - 1)) / cols, bh = Math.min(P ? 118 : 96, (R.b - (R.y + 34) - gap * (rows - 1) - (P ? 90 : 20)) / rows);
+      TUT_PAGES.forEach((q, i) => { const x = R.x + (i % cols) * (bw + gap), y = R.y + 34 + ((i / cols) | 0) * (bh + gap); u.chip('tut_pg:' + i, x, y, bw, bh, q.t, q.sub, i === this.page, { ls: P ? 28 : 22, ss: P ? 19 : 14 }); });
+      u.button('tut_toc', R.x, R.b - (P ? 78 : 56), R.w, P ? 78 : 56, 'Back to the page', { size: P ? 26 : 20 }); return;
+    }
+    let y = R.y;
+    const nh = P ? 66 : 48, ab = P ? 84 : 64; u.button('tut_prev', R.x, y, ab, nh, '◀', { size: 24 }); u.button('tut_next', R.x + R.w - ab, y, ab, nh, '▶', { size: 24 });
+    u.button('tut_toc', R.x + ab + 8, y, R.w - 2 * ab - 16, nh, '', {}); u.text(u.fit(pg.t, R.w - 2 * ab - 120, u.font(P ? 28 : 22, 800)), R.x + R.w / 2, y + nh * 0.44, u.font(P ? 28 : 22, 800), C.tx, 'center', 'middle'); u.text((this.page + 1) + ' / ' + TUT_PAGES.length + '  ·  tap for all topics', R.x + R.w / 2, y + nh * 0.8, u.font(P ? 18 : 13, 500), C.dim, 'center', 'middle'); y += nh + 8;
+    if (pg.plat) { const ph = P ? 56 : 40, gp = 8, pw = (R.w - 2 * gp) / 3; TUT_PLAT.forEach((q, i) => u.chip('tut_plat:' + q[0], R.x + i * (pw + gp), y, pw, ph, q[1], '', this.plat === q[0], { ls: P ? 24 : 18 })); y += ph + 10; }
+    const barH = P ? 84 : 0, vx = R.x, vw = R.w - (P ? 0 : 70), vy = y, vh = R.b - barH - vy - (P ? 8 : 0), pad = 14, lay = this.layout(u, pg.b(this.plat || 'pc'), vw - 2 * pad - (P ? 0 : 6), P);
+    this.view.h = vh; this._max = Math.max(0, lay.h - vh + 20); this.top = clamp(this.top, 0, this._max);
+    u.rr(vx, vy, vw, vh, 16); g.fillStyle = 'rgba(255,255,255,0.04)'; g.fill(); g.save(); u.rr(vx, vy, vw, vh, 16); g.clip();
+    const ox = vx + pad, oy = vy + 8 - this.top, S = P ? 1.18 : 1;
+    for (const it of lay.items) {
+      const yy = oy + it.y; if (yy > vy + vh + 40 || yy < vy - 220) continue;
+      if (it.k === 'h') u.text(it.t, ox, yy + 24 * S, it.font, C.cy);
+      else if (it.k === 'p') it.ls.forEach((l, i) => u.text(l, ox, yy + (i + 1) * it.lh - 6, it.font, C.tx));
+      else if (it.k === 'li') { it.ls.forEach((l, i) => { if (i === 0) u.text('•', ox + 2, yy + it.lh - 6, it.font, C.cy); u.text(l, ox + 24 * S, yy + (i + 1) * it.lh - 6, it.font, C.tx); }); }
+      else if (it.k === 'k') { u.rr(ox, yy, it.kw, it.hh, 10); g.fillStyle = 'rgba(25,227,255,0.14)'; g.fill(); it.kl.forEach((l, i) => u.text(l, ox + it.kw / 2, yy + 5 + (i + 1) * it.kh - 5, it.kf, C.cy, 'center')); it.ls.forEach((l, i) => u.text(l, ox + it.kw + 14, yy + (i + 1) * it.lh - 6, it.font, C.tx)); }
+      else if (it.k === 'tip') { const th = it.ls.length * it.lh + 20; u.rr(ox, yy, vw - 2 * pad, th, 12); g.fillStyle = 'rgba(255,211,77,0.12)'; g.fill(); g.fillStyle = C.gd; g.fillRect(ox, yy + 6, 4, th - 12); it.ls.forEach((l, i) => u.text(l, ox + 18, yy + 10 + (i + 1) * it.lh - 6, it.font, C.gd)); }
+    }
+    g.restore();
+    if (this._max > 0) { const th = Math.max(36, vh * vh / (vh + this._max)), ty = vy + (vh - th) * (this.top / this._max); u.rr(vx + vw - 8, ty, 4, th, 2); g.fillStyle = 'rgba(25,227,255,0.55)'; g.fill(); }
+    if (!P) { const bh = (vh - 8) / 2; u.button('tut_up', vx + vw + 10, vy, 60, bh, '▲', { size: 22, dis: this.top <= 0 }); u.button('tut_dn', vx + vw + 10, vy + bh + 8, 60, bh, '▼', { size: 22, dis: this.top >= this._max }); }
+    else { const by = R.b - barH + 8, bw = (R.w - 2 * 8) * 0.24; u.button('tut_up', R.x, by, bw, barH - 8, '▲', { size: 26, dis: this.top <= 0 }); u.button('tut_dn', R.x + bw + 8, by, bw, barH - 8, '▼', { size: 26, dis: this.top >= this._max }); u.button('tut_next', R.x + 2 * (bw + 8), by, R.w - 2 * (bw + 8), barH - 8, this.page < TUT_PAGES.length - 1 ? 'Next topic  ▶' : 'First topic  ▶', { size: 26, primary: true, weight: 800 }); }
+  }
+};
+
 // ===== MAIN: renderer, XR session, recentre, performance governor, state sync, loop =====
 loadSettings();
 const $ = (id) => document.getElementById(id);
@@ -8385,8 +8669,8 @@ async function init() {
   window.__started = true;
   await bootP(0.02, 'Starting');
   glEl = $('gl'); uiEl = $('ui'); hudEl = $('hud'); fileEl = $('file');
-  renderer = new THREE.WebGLRenderer({ canvas: glEl, antialias: true, alpha: true, powerPreference: 'high-performance', stencil: false });
-  renderer.setPixelRatio(Gov.pr = Math.min(window.devicePixelRatio || 1, TOUCH ? 1.5 : 2)); renderer.setClearColor(0x000000, 1);
+  renderer = new THREE.WebGLRenderer({ canvas: glEl, antialias: !TOUCH, alpha: true, powerPreference: 'high-performance', stencil: false });
+  renderer.setPixelRatio(Gov.pr = Math.min(window.devicePixelRatio || 1, TOUCH ? 1.0 : 1.25)); renderer.setClearColor(0x000000, 1);
   renderer.xr.enabled = true; renderer.xr.setReferenceSpaceType('local-floor');
   scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(68, 1, 0.05, 230); scene.add(camera);
   await R.init(renderer, scene, camera, bootP);
@@ -8472,7 +8756,7 @@ function onResize() {
 
 // ---------- settings -> runtime ----------
 function applyQuality() {
-  const q = Settings.quality === 'auto' ? Gov.tier : +Settings.quality;
+  let q = Settings.quality === 'auto' ? Gov.tier : +Settings.quality; if (!XR.session && Settings.quality === 'auto') q = Math.max(q, 1);
   R.setQuality(q);
   if (XR.session) setFovea(Math.max(FOVEA[q], Gov.fovea));
 }
@@ -8531,7 +8815,7 @@ function recenter() {
 function placePanel(yaw) { if (yaw === undefined) { const y = Input.headYaw(); yaw = y !== null ? y : R.world.rotation.y; } VRUI.place(Input.head, yaw); }
 
 // ---------- game flow ----------
-function doPause() { if (Game.state !== 'playing') return; Game.pause(); UI.set('pause'); if (XR.session) placePanel(); }
+function doPause(manual) { if (Game.state !== 'playing') return; if (!Party.onPauseKey(manual === true)) return; Game.pause(); UI.set('pause'); if (XR.session) placePanel(); }
 async function startSelected() {
   applyModeView();
   const it = Library.items[Library.selected]; if (!it || it.status !== 'ready' || starting) return;
@@ -8546,6 +8830,7 @@ async function startSelected() {
   starting = false;
 }
 function handleAct(id) {
+  if ((id === 'resume' || id === 'restart' || id === 'retry' || id === 'quit' || id === 'menu') && Party.intercept(id)) return;
   switch (id) {
     case 'play': if (UI.screen === 'home') UI.set('setup'); else if (Queue.arm) { if (Queue.begin()) startSelected(); else Queue.arm = false; } else { Queue.end(); startSelected(); } break;
     case 'qagain': Queue.arm = true; if (Queue.begin()) startSelected(); break;
@@ -8588,9 +8873,9 @@ function handleEvents(list) {
       case 'overdrive': if (st === 'playing' && !Game.watch) Game.activateOverdrive(); break;
       case 'sky': if (st === 'playing' && !Game.watch) Game.skyBolt(e); break;
       case 'fire': if (st === 'playing' && Game.drive && (!Game.watch || Game.gunner)) driveFire(e); break;
-      case 'pause': doPause(); break;
+      case 'pause': doPause(true); break;
       case 'ok': if (st === 'playing') Game.activateOverdrive(); else if (sc === 'home' || sc === 'setup') handleAct('play'); else if (sc === 'pause') handleAct('resume'); else if (sc === 'results') handleAct(Queue.run ? 'qagain' : 'retry'); break;
-      case 'back': if (st === 'playing') doPause(); else if (sc === 'pause') handleAct('resume'); else if (sc === 'setup') UI.set('home'); else if (sc === 'comfort') UI.set('settings'); else if (sc === 'settings' || sc === 'search') UI.act('back'); else if (sc === 'results') handleAct('menu'); break;
+      case 'back': if (st === 'playing') doPause(true); else if (sc === 'pause') handleAct('resume'); else if (sc === 'setup') UI.set('home'); else if (sc === 'comfort') UI.set('settings'); else if (sc === 'tutorial') Tut.close(); else if (sc === 'settings' || sc === 'search') UI.act('back'); else if (sc === 'results') handleAct('menu'); break;
       case 'up': UI.scrollList(-1); break;
       case 'down': UI.scrollList(1); break;
       case 'left': case 'right': if (sc === 'home' || sc === 'setup') { Settings.difficulty = clamp(Settings.difficulty + (e.a === 'left' ? -1 : 1), 0, 3); saveSettings(); UI.dirty = true; } break;
