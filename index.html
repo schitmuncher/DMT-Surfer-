@@ -98,7 +98,7 @@ const DIFFICULTIES = [
 const DEFAULT_SETTINGS = {
   difficulty: 1, speed: 1, control: 'point', ctlv: 2, flight: true, hand: 'right', sens: 1,
   vignette: true, haptics: 'full', hitVol: 0.6, musicVol: 0.9, offsetMs: 0,
-  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: true, mrHand: true, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: true, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
+  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: false, mrHand: false, mrV3: true, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: true, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
   quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
 };
 function applyModeView() {                       // each mode family remembers its own view; Drive-by defaults to the cockpit
@@ -149,6 +149,7 @@ function loadSettings() {
   Profile.load();
   try { const o = JSON.parse(Store.get('dmtsurf.settings') || '{}'); if (typeof o.haptics === 'boolean') { o.haptics = o.haptics ? 'full' : 'off'; Store.set('dmtsurf.settings', JSON.stringify(o)); } } catch (e) {}
   try { Object.assign(Settings, JSON.parse(Store.get('dmtsurf.settings') || '{}')); } catch (e) {}
+  if (!Settings.mrV3) { Settings.mrOcc = false; Settings.mrHand = false; Settings.mrV3 = true; try { Store.set('dmtsurf.settings', JSON.stringify(Settings)); } catch (e) {} }          // Quest 3: depth hiding and hand glow start off until they are proven on your headset
   if ((Settings.ctlv | 0) < 2) { Settings.control = 'point'; Settings.ctlv = 2; saveSettings(); }          // v7: pointing is the default (grip is still in Settings)
   if ((Settings.sndv | 0) < 1) { Settings.collectSound = false; Settings.sndv = 1; saveSettings(); }          // v5.9: the gem pluck is off by default (it is still one tap away in Settings)
   applyModeView();
@@ -6018,7 +6019,7 @@ const MR_ROWS = [
   { k: 'mrPulse', label: 'Room pulses to beat', bool: true },
   { k: 'mrWall', label: 'Walls light up', opts: ['off', 'rings', 'grid'], names: ['Off', 'Rings', 'Rings + grid'] },
   { k: 'mrEdge', label: 'Glow room edges', bool: true },
-  { k: 'mrOcc', label: 'Real objects hide game', bool: true },
+  { k: 'mrOcc', label: 'Real objects hide game (beta)', bool: true },
   { k: 'mrHand', label: 'Hand glow', bool: true },
   { k: 'mrOrb', label: 'Floating shapes', bool: true },
   { k: 'mrSafe', label: 'Play-area ring', bool: true },
