@@ -99,7 +99,7 @@ const DEFAULT_SETTINGS = {
   difficulty: 1, speed: 1, control: 'point', ctlv: 2, flight: true, hand: 'right', sens: 1,
   vignette: true, haptics: 'full', hitVol: 0.6, musicVol: 0.9, offsetMs: 0,
   mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: false, mrHand: false, mrV3: true, mrV4: true, mrTunnel: true, mrTunnelW: 1, mrDepth: false, mrFloorOff: 0, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: false, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
-  quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
+  quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', tiltAssist: 1, partyView: 'ghost', skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
 };
 function applyModeView() {                       // each mode family remembers its own view; Drive-by defaults to the cockpit
   const g = Settings.mode === 'drive' ? 'D' : 'O'; if (g === Settings.vgrp) return;
@@ -170,7 +170,7 @@ function saveScore(key, rec) {
 }
 
 // ===== ANALYSIS: FFT spectrum timeline, onsets, tempo/beat grid, sections =====
-const A_NB = 16, A_N = 1024, A_HOP = 512, A_VERSION = 4;
+const A_NB = 16, A_N = 1024, A_HOP = 512, A_VERSION = 5;
 const A_BIAS = 0; // seconds added to detected onset times (calibrated in tests)
 
 function createFFT(n) {
@@ -378,8 +378,35 @@ async function analyzeTrack(buffer, onProgress) {
     if (sections.every(t => Math.abs(t - k * 0.5) > 10)) sections.push(k * 0.5);
   }
   sections.sort((a, b) => a - b);
+  // refine: the 0.5 s curve only finds a section to within a second or two, so search the full-resolution loudness (bass-weighted) for the sharpest
+  // step near each one, then lock it to the nearest BAR line, so a scene change lands exactly on the downbeat instead of somewhere near it
+  const bp = 60 / tempo.bpm, fT = (f) => (f * A_HOP + A_N * 0.5) / sr + A_BIAS, tF = (t) => Math.round(((t - A_BIAS) * sr - A_N * 0.5) / A_HOP);
+  const sm = new Float32Array(nF + 1); for (let f = 0; f < nF; f++) { let lo = 0; for (let b = 0; b < 5; b++) lo += bands[f * A_NB + b]; sm[f + 1] = sm[f] + loud[f] + lo / 5 * 0.6; }
+  const avg = (f0, f1) => { f0 = Math.max(0, f0); f1 = Math.min(nF, f1); return f1 > f0 ? (sm[f1] - sm[f0]) / (f1 - f0) : 0; };
+  const fps = sr / A_HOP, WN = Math.round(0.9 * fps);
+  let down = 0;                                                  // which beat of four is the bar's first: the one the bass lands on most
+  if (tempo.conf > 0 && bp > 0.2 && bp < 1.2) {
+    const acc = [0, 0, 0, 0]; for (const o of onsetsRaw) { const k = Math.round((o.t - tempo.phase) / bp); if (Math.abs(o.t - tempo.phase - k * bp) < bp * 0.2) acc[((k % 4) + 4) % 4] += o.s * (0.3 + o.lo); }
+    down = acc.indexOf(Math.max(...acc));
+  }
+  const fine = [];
+  for (const t0 of sections) {
+    const fc = tF(t0), R = Math.round(3 * fps); let bf = fc, bv = -1;
+    for (let f = Math.max(WN, fc - R); f <= Math.min(nF - WN, fc + R); f++) { const v = Math.abs(avg(f, f + WN) - avg(f - WN, f)) * (1 - 0.04 * Math.abs(f - fc) / fps); if (v > bv) { bv = v; bf = f; } }
+    fine.push(fT(bf));
+  }
+  const gridOK = tempo.conf > 0 && bp > 0.2 && bp < 1.2;
+  if (gridOK && fine.length >= 2) {            // song structure changes on bar lines, so the bar phase that fits the section edges best is the downbeat (the kick lands on every beat and can't say which is 'one')
+    let best = 1e9; for (let d = 0; d < 4; d++) { const o0 = tempo.phase + d * bp, bar = bp * 4; let e = 0; for (const t of fine) { const x = (t - o0) / bar; e += Math.abs(x - Math.round(x)); } if (e < best - 1e-9) { best = e; down = d; } }
+  }
+  const refined = [];
+  for (let t of fine) {
+    if (gridOK) { const bar = bp * 4, o0 = tempo.phase + down * bp; t = o0 + Math.round((t - o0) / bar) * bar; }
+    if (t > 1 && t < buffer.duration - 4 && refined.every(x => Math.abs(x - t) > 6)) refined.push(t);
+  }
+  refined.sort((a, b) => a - b); sections.length = 0; for (const t of refined) sections.push(t);
   if (onProgress) onProgress(1);
-  return { version: A_VERSION, dur: buffer.duration, sr, hop: A_HOP / sr, nF, NB: A_NB, bands, loud, bpm: tempo.bpm, phase: tempo.phase, onsets: onsetsRaw, sections, curve };
+  return { version: A_VERSION, dur: buffer.duration, sr, hop: A_HOP / sr, nF, NB: A_NB, bands, loud, bpm: tempo.bpm, phase: tempo.phase, down, onsets: onsetsRaw, sections, curve };
 }
 
 // timeline sampling (t in seconds of song time)
@@ -888,7 +915,7 @@ function isHeavy(S, a) {
 }
 // ---- song structure -> visual segments: scene choice + turn direction per segment, from the pre-scan ----
 function buildSegments(a, key) {
-  const per = 60 / a.bpm, bar = per * 4, MAXLEN = 17, snap = (t) => a.phase + Math.round((t - a.phase) / bar) * bar;
+  const per = 60 / a.bpm, bar = per * 4, MAXLEN = 17, o0 = a.phase + (a.down | 0) * per, snap = (t) => o0 + Math.round((t - o0) / bar) * bar;
   const b = [0].concat(a.sections.filter(t => t > 4 && t < a.dur - 4), [a.dur]), cuts = [];
   for (let i = 0; i < b.length - 1; i++) {
     const t0 = b[i], len = b[i + 1] - t0;
@@ -1467,7 +1494,7 @@ const Game = {
     const key = this.track.key + ':' + this.diff + (this.saber ? ':' + this.weapon : this.drive ? ':drive' : this.guitar ? ':gtr' : '');
     if (!failed && !this.journey && !Queue.run) this.newBest = saveScore(key, { score: this.score, grade: this.result.grade, acc, combo: this.maxCombo });
     if (this.gRec && !failed && this.gOn && !this.watch) { this.gRec.res = this.notes.map(n => n.hit); } if (this.gRec && !failed && this.gOn && !this.watch) Ghosts.add(this.gKey, this.gRec, this.score, this.result.grade);
-    AudioEng.stop(); if (!this.watch && typeof Spectate !== 'undefined') Spectate.onEnd();
+    AudioEng.stop(); if (!this.watch && typeof Spectate !== 'undefined') Spectate.onEnd(); if (typeof Party !== 'undefined') Party.onEnd();
   },
 
   // journey mode autopilot: weaves through the lanes and takes the inside line of every corner; any steering input takes over for a few seconds
@@ -3417,6 +3444,26 @@ const R = {
     g.font = UI.font(120, 900); g.fillStyle = col; g.fillText(String(n), 112, 168); g.font = UI.font(70, 900); g.fillStyle = '#fff'; g.fillText(turn ? '⟳' : '⟲', 575, 120);
     W.tex.needsUpdate = true;
   },
+  partyRivals(dt, g, songT, speed, rk0, now) {                          // other players in a Party round: ghost ships on your track, or small side tracks of their own
+    const P = this.rivalP || (this.rivalP = []), list = (typeof Party !== 'undefined' && Party.round && g.state === 'playing' && songT >= -1) ? Party.rivals() : [], tracks = Settings.partyView === 'tracks';
+    while (P.length < Math.min(7, list.length)) {
+      const grp = new THREE.Group(), body = new THREE.ConeGeometry(0.13, 0.62, 5); body.rotateX(-Math.PI / 2);
+      const ship = new THREE.Mesh(body, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.02, 6, 24), ship.material); ring.rotation.x = Math.PI / 2;
+      const pan = new THREE.Mesh(new THREE.PlaneGeometry(5 * LANE_W * 0.55, 9), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })); pan.rotation.x = -Math.PI / 2; pan.position.set(0, 0.04, -3.5);
+      const dv = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([1, 2, 3, 4].flatMap(k => [new THREE.Vector3((k / 5 - 0.5) * 5 * LANE_W * 0.55, 0.05, -8), new THREE.Vector3((k / 5 - 0.5) * 5 * LANE_W * 0.55, 0.05, 1)])), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending }));
+      const sh = new THREE.Group(); sh.add(ship); sh.add(ring); grp.add(pan); grp.add(dv); grp.add(sh); grp.userData = { ship: sh, pan, dv, mat: ship.material, pm: pan.material, dm: dv.material, x: 0, y: 0, z: SHIP_Z };
+      grp.visible = false; grp.frustumCulled = false; this.rig.add(grp); P.push(grp);
+    }
+    for (let k = 0; k < P.length; k++) {
+      const grp = P[k], r = list[k], u = grp.userData; if (!r) { grp.visible = false; continue; } grp.visible = true;
+      const col = new THREE.Color(r.col); u.mat.color.copy(col); u.pm.color.copy(col); u.dm.color.copy(col); u.pan.visible = u.dv.visible = tracks;
+      const lead = clamp((r.t - songT) * speed, -9, 12), kk = (k >> 1) + 1, side = (k & 1) ? 1 : -1;
+      if (tracks) { const lw = LANE_W * 0.55; grp.position.set(side * (5.6 + 4.2 * (kk - 1)), 0, 0); u.tx = r.lat * lw; u.tz = SHIP_Z - clamp(lead * 0.3, -3.4, 4.2); u.ty = 0.3 + r.alt * HI_Y * 0.5; }
+      else { grp.position.set(0, 0, 0); u.tx = r.lat * LANE_W * rk0; u.tz = SHIP_Z - lead; u.ty = 0.4 + r.alt * HI_Y + 0.05 * Math.sin(now * 3 + k); }
+      const e = Math.min(1, dt * 9); u.x += (u.tx - u.x) * e; u.y += (u.ty - u.y) * e; u.z += (u.tz - u.z) * e; u.ship.position.set(u.x, u.y, u.z); u.ship.rotation.z = clamp((u.tx - u.x) * -0.6, -0.6, 0.6); u.ship.scale.setScalar(tracks ? 1.3 : 2.4);
+    }
+  },
   buildGhost() {                                                         // your best run on this song: a faint, slowly turning diamond that flies the line you flew
     const m = this.ghostM = new THREE.Mesh(new THREE.OctahedronGeometry(0.2, 0).scale(1, 0.6, 1.6), new THREE.MeshBasicMaterial({ color: 0x9ff4ff, transparent: true, opacity: 0.42, depthWrite: false, blending: THREE.AdditiveBlending }));
     m.visible = false; m.frustumCulled = false; this.rig.add(m);
@@ -4184,6 +4231,7 @@ const R = {
     const bob = 0.04 * Math.sin(now * 3), roll = clamp(-g.latVel * 0.07 - g.kappa * 60, -0.7, 0.7);
     { const G = this.ghostM, gh = g.ghost, on = !!(G && gh && g.state === 'playing' && Settings.mrGhost && songT >= 0 && gh.lat.length > 3); if (G) { G.visible = on; if (on) { const s = ghostAt(gh, songT); G.position.set(s.lat * LANE_W * rk0, 0.4 + s.alt * HI_Y + 0.05 * Math.sin(now * 3), SHIP_Z); G.rotation.y += dt * 1.6; } } }
     { const W = this.warnS, rw = g.rollWarn, on = !!(W && rw && UI.xr && g.state === 'playing' && songT > 0 && !Settings.cSteady); if (W) { W.sp.visible = on; if (on) { const n = Math.max(1, Math.ceil(rw.t0 - songT)), fl = Math.floor(now * 7) % 2, key = n + '|' + fl + '|' + (rw.turn ? 1 : 0); if (key !== W.key) { W.key = key; this.warnDraw(n, !!rw.turn, fl); } const pu = 1 + 0.05 * Math.sin(now * 14); W.sp.position.set(0, 2.15 + 0.05 * Math.sin(now * 3), -7.5); W.sp.scale.set(3.8 * pu, 1.43 * pu, 1); } } }
+    this.partyRivals(dt, g, songT, speed, rk0, now);
     this.ship.scale.setScalar(1.6); this.altV = g.alt || 0; this.ship.position.set(sxw, 0.32 + bob + this.altV * HI_Y + (this.sLift || 0), SHIP_Z); this.ship.rotation.z = roll; this.ship.rotation.x = 0.0;
     const hs2 = 1 + 0.25 * pulse + 0.5 * this.od + 0.35 * this.kick + 0.15 * this.low; { const k = clamp(this.high / (this.low + this.high + 0.15), 0, 1), c1 = this.curTheme ? this.curTheme.a1 : { x: 0.2, y: 0.87, z: 1 }, c2 = this.curTheme ? this.curTheme.a2 : { x: 1, y: 0.4, z: 0.9 }; this.halo.material.color.setRGB(0.2 + (c1.x * (1 - k) + c2.x * k) * 0.8, 0.5 + (c1.y * (1 - k) + c2.y * k) * 0.5, 0.7 + (c1.z * (1 - k) + c2.z * k) * 0.3); } this.halo.position.set(sxw, 0.03, SHIP_Z); this.halo.scale.set(hs2 * (1 + 0.5 * this.altV), hs2 * (1 + 0.5 * this.altV), hs2);       // the ring on the road is your shadow when you fly
     this.halo.material.color.setRGB(c.a1.x * (1 - this.od) + 1.0 * this.od, c.a1.y * (1 - this.od) + 0.85 * this.od, c.a1.z * (1 - this.od) + 0.3 * this.od);
@@ -5629,6 +5677,7 @@ const Input = {
     gl.addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse') this.fps.delete(e.pointerId); }); gl.addEventListener('pointercancel', (e) => this.fps.delete(e.pointerId));
     gl.addEventListener('pointermove', steer);
     gl.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') this.tiltInit();
       this.pointers.add(e.pointerId); if (e.pointerType === 'touch' && tapMode()) { steer(e); if (Game.state === 'playing' && !Game.saber && Game.drive === false) { /* overdrive is the OD button on phones */ } return; } if (e.pointerType === 'touch' && !this.tp) this.tp = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: this.target }; steer(e);
       if (Game.state !== 'playing') return;
       if (Game.saber) return;
@@ -5658,9 +5707,27 @@ const Input = {
     ui.addEventListener('pointerup', (e) => { const p = map(e); this.ptr = e.pointerType === 'mouse' ? p : null; if (sw && sw.moved) { sw = null; return; } sw = null; this.push('click', { x: p.x, y: p.y }); });
     ui.addEventListener('wheel', (e) => { this.push('scroll', { d: e.deltaY > 0 ? 1 : -1 }); e.preventDefault(); }, { passive: false });
   },
+  // phone tilt assist: lean the phone like a steering wheel; the neutral angle is taken when a run starts (and on recentre), so however you hold it is 'straight'
+  tiltInit() {
+    if (this.tiltOn || !TOUCH || typeof DeviceOrientationEvent === 'undefined') return; this.tiltOn = 1;
+    const go = () => addEventListener('deviceorientation', (e) => {
+      if (e.gamma == null && e.beta == null) return;
+      const ang = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+      let v = ang === 90 ? e.beta : ang === 270 || ang === -90 ? -e.beta : ang === 180 ? -e.gamma : e.gamma;     // portrait: left/right lean is gamma; landscape: it is beta
+      if (v == null) return; this.tiltRaw = v; this.tiltSeen = performance.now();
+    }, true);
+    try { if (typeof DeviceOrientationEvent.requestPermission === 'function') DeviceOrientationEvent.requestPermission().then(r => { if (r === 'granted') go(); }).catch(() => {}); else go(); } catch (e) { }
+  },
+  tiltCal() { this.tiltZero = this.tiltRaw == null ? null : this.tiltRaw; },
+  tiltDir() {
+    const A = Settings.tiltAssist || 0; if (!A || this.xr || Game.saber && false || this.tiltRaw == null || performance.now() - this.tiltSeen > 500) return 0;
+    if (this.tiltZero == null) this.tiltZero = this.tiltRaw;
+    let d = this.tiltRaw - this.tiltZero; if (d > 180) d -= 360; if (d < -180) d += 360;
+    const dz = 3.5, full = 24 / Math.max(0.5, A); d = Math.abs(d) < dz ? 0 : (d - Math.sign(d) * dz) / (full - dz); return clamp(d, -1, 1);
+  },
   updateFlat(dt) {
-    if (Game.state !== 'playing') return;
-    const dir = clamp((this.keys.r ? 1 : 0) - (this.keys.l ? 1 : 0) + Pad.dx, -1, 1);
+    if (Game.state !== 'playing') { this.tiltZero = null; this.tiltInit(); return; }
+    const td = this.tiltDir(), dir = clamp((this.keys.r ? 1 : 0) - (this.keys.l ? 1 : 0) + Pad.dx + td, -1, 1);
     if (dir) this.target = clamp(this.target + dir * dt * 6.5 * Settings.sens, -2.15, 2.15);
     const hd = this.hold; if (hd && performance.now() - hd.t > 170) this.target = clamp(this.target + hd.side * dt * 8 * (Settings.touchSpd || 1), -2, 2);      // keep a thumb down and the ship keeps going
     if (this.fireHeld && Game.drive && performance.now() - (this.fAuto || 0) > 140) { this.fAuto = performance.now(); this.push('fire', {}); }
@@ -6041,6 +6108,7 @@ const SETTING_ROWS = [
   { k: 'tilt', label: 'Camera tilt & bank', opts: ['auto', 'off', 'low', 'high'], names: ['Auto', 'Off', 'Low', 'High'] },
   { k: 'control', label: 'Steering (VR)', opts: ['grip', 'point', 'stick', 'lean'], names: ['Grip', 'Point', 'Stick', 'Lean'] },
   { k: 'touch', label: 'Touch steering', opts: ['lanes', 'tap', 'drag', 'slide'], names: ['Tap & slide', 'Tap sides', 'Drag (relative)', 'Slide (old)'] },
+  { k: 'tiltAssist', label: 'Phone tilt steering', min: 0, max: 2, step: 0.25, fmt: (v) => v ? v.toFixed(2) + 'x' : 'Off' },
   { k: 'touchSpd', label: 'Touch steering speed', min: 0.5, max: 2.5, step: 0.25, fmt: (v) => v.toFixed(2) + 'x' },
   { k: 'hand', label: 'Shooting hand (other hand steers)', opts: ['right', 'left'], names: ['Right', 'Left'] },
   { k: 'sens', label: 'Sensitivity', min: 0.5, max: 2, step: 0.1, fmt: v => v.toFixed(1) + 'x' },
@@ -6160,6 +6228,8 @@ const UI = {
       case 'ghosts': Ghosts.open(); break;
       case 'spectate': this.set('spectate'); break;
       case 'sp_host': case 'sp_watch': case 'sp_key': case 'sp_stop': case 'sp_back': Spectate.act(id, parts); break;
+      case 'sp_party': UI.set('party'); break;
+      case 'pt_host': case 'pt_join': case 'pt_key': case 'pt_start': case 'pt_song': case 'pt_view': case 'pt_leave': case 'pt_back': case 'pt_rank': Party.act(id, parts); break;
       case 'cal_back': Calib.stop(); this.set('settings'); break;
       case 'share': Share.go(); break;
       case 'cback': this.set('settings'); break;
@@ -6230,7 +6300,7 @@ const UI = {
   },
   draw() {
     const g = this.g; g.clearRect(0, 0, UW, UH); this.W.length = 0; g.textBaseline = 'alphabetic';
-    switch (this.screen) { case 'home': this.home(); break; case 'settings': this.settings(); break; case 'pause': this.pause(); break; case 'results': this.results(); break; case 'loading': this.loading(); break; case 'search': this.search(); break; case 'setup': this.setup(); break; case 'comfort': this.comfort(); break; case 'mr': this.mrScreen(); break; case 'calib': Calib.draw(this); break; case 'ghosts': Ghosts.draw(this); break; case 'gtr': Gtr.draw(this); break; case 'spectate': Spectate.draw(this); break; }
+    switch (this.screen) { case 'home': this.home(); break; case 'settings': this.settings(); break; case 'pause': this.pause(); break; case 'results': this.results(); break; case 'party': Party.draw(this); break; case 'rank': Party.drawResults(this); break; case 'loading': this.loading(); break; case 'search': this.search(); break; case 'setup': this.setup(); break; case 'comfort': this.comfort(); break; case 'mr': this.mrScreen(); break; case 'calib': Calib.draw(this); break; case 'ghosts': Ghosts.draw(this); break; case 'gtr': Gtr.draw(this); break; case 'spectate': Spectate.draw(this); break; }
     if (this.toastT > 0 && this.toastMsg) {
       g.font = this.font(24, 600); const w = Math.min(900, g.measureText(this.toastMsg).width + 56);
       this.rr((UW - w) / 2, UH - 82, w, 52, 26); g.fillStyle = 'rgba(0,0,0,0.88)'; g.fill(); g.lineWidth = 2; g.strokeStyle = C.cy; g.stroke();
@@ -6250,7 +6320,7 @@ const UI = {
     const g = this.g, L = Library, S = Settings, items = L.items, sel = items[L.selected];
     this.panelBG(4, 4, UW - 8, UH - 8); this.title('DMT SURF', 'Ride your music');
     this.button('settings', 836, 26, 162, 50, 'Settings', { size: 22 });
-    this.button('spectate', 240, 26, 80, 50, Spectate.st === 'live' ? '● Live' : '👁 Watch', { size: 15, r: 12 });
+    this.button('spectate', 240, 26, 80, 50, Party.on() ? '● Party' : Spectate.st === 'live' ? '● Live' : '👥 Friends', { size: 15, r: 12 });
     { const si = Profile.skinIdx(); this.button('veh', 330, 26, 134, 50, VEHICLES[clamp(S.vehicle | 0, 0, 3)].n, { size: 18 }); this.button('skin', 470, 26, 130, 50, SKINS[si].n, { size: 18 }); this.text('CRAFT', 336, 21, this.font(12, 700), C.dim); this.text('PAINT · LV ' + Profile.level, 476, 21, this.font(12, 700), C.dim); this.rr(334, 80, 262, 6, 3); g.fillStyle = 'rgba(255,255,255,0.12)'; g.fill(); this.rr(334, 80, Math.max(6, 262 * Profile.frac()), 6, 3); g.fillStyle = C.cy; g.fill(); }
     if (this.xr) this.button('recenter', 656, 26, 170, 50, 'Recenter', { size: 22 });
     else if (this.xrOK && this.arOK) { this.button('vr', 616, 26, 100, 50, 'ENTER VR', { primary: true, size: 17, weight: 800 }); this.button('ar', 722, 26, 104, 50, 'MIXED', { size: 20, weight: 800 }); this.text('PASSTHROUGH', 726, 21, this.font(12, 700), C.dim); }
@@ -6464,6 +6534,7 @@ const UI = {
     }
     const gc = GRADE_COL[r.grade] || C.tx;
     if (!this.xr) this.button('share', 872, 24, 130, 46, '⇪ Share', { size: 21 });
+    if (Party.on()) this.button('pt_rank', 730, 24, 136, 46, '🏁 Rankings', { size: 19 });
     this.text(Game.failed ? (Game.saber ? 'ENERGY DEPLETED' : 'THE SHOW IS OVER') : Game.journey ? 'JOURNEY COMPLETE' : Queue.run ? 'SET COMPLETE' : 'TRACK COMPLETE', UW / 2, 74, this.font(34, 800), Game.failed ? C.red : C.cy, 'center');
     this.text(this.fit(Queue.run ? Queue.items().map(x => x.name).join('  ·  ') : (Game.track ? Game.track.name || '' : ''), 800, this.font(22, 500)), UW / 2, 108, this.font(22, 500), C.dim, 'center');
     g.save(); g.shadowColor = gc; g.shadowBlur = 40; this.text(r.grade, 230, 372, this.font(250, 900), gc, 'center'); g.restore();
@@ -6494,6 +6565,9 @@ const HUD = {
   canvas: null, g: null, key: '', dirty: false,
   init(canvas) { this.canvas = canvas; canvas.width = 768; canvas.height = 256; this.g = canvas.getContext('2d'); },
   update(now) {
+    const pk = Party.sig(); if (pk !== this.pk) { this.pk = pk; this.key = ''; } const r = this.update0(now); if (r && pk) Party.hudDraw(this.g); return r;
+  },
+  update0(now) {
     const G = Game, g = this.g; if (!g) return false;
     const sf = G.sceneFlash > 0 && G.songT > 0 ? Math.min(1, G.sceneFlash) : 0, sName = SCENES[G.sceneIdx] ? SCENES[G.sceneIdx].name : '';
     const cd = G.songT < 0 ? Math.ceil(-G.songT) : 0, ready = G.od >= 0.5 && !G.odActive, tm = Math.max(0, Math.floor(G.songT));
@@ -7088,6 +7162,187 @@ const MR = {
   }
 };
 
+// ===== PARTY: up to eight players ride the same song at once, each on their own device (headset, phone, screen), same game mode =====
+// Everyone plays their own copy of the game, so nobody feels lag. Only a 10 Hz stream (lane, height, score, combo, how far into the song you are) is shared.
+// Topology: the host holds one WebRTC data channel to each guest and relays the table to all of them. A six digit code is swapped through the same tiny public
+// relay as Spectate, only to set the connections up. Rivals show as ghost ships on YOUR track (default) or on small side tracks of their own.
+const PARTY_MAX = 8, PARTY_COL = ['#19e3ff', '#ff4fd8', '#ffd23c', '#3dff8a', '#ff7a3c', '#a58bff', '#ffffff', '#6aa8ff'];
+const Party = {
+  relay: (() => { try { return new URLSearchParams(location.search).get('relay') || 'https://ntfy.sh'; } catch (e) { return 'https://ntfy.sh'; } })(),
+  ice: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }],
+  role: null, st: 'idle', code: '', input: '', msg: '', gid: '', pid: 0, sess: 0, es: [], peers: new Map(), pc: null, dc: null,
+  names: {}, tbl: {}, round: false, tx: 0, sendT: 0, miss: '', me: { fin: false }, ghostAt: {}, mk: null,
+  on() { return this.st === 'live' || this.round; },
+  digits() { let s = ''; for (let i = 0; i < 6; i++) s += (Math.random() * 10) | 0; return s; },
+  say(m, st) { this.msg = m; if (st) this.st = st; UI.dirty = true; },
+  topic(s) { return 'dmtparty' + this.code + s; },
+  sub(s, cb) { const id = this.sess; const es = new EventSource(this.relay + '/' + this.topic(s) + '/sse?since=10m'); es.onmessage = (ev) => { if (id !== this.sess) return; try { const j = JSON.parse(ev.data); if (j.event === 'message') cb(j.message); } catch (e) {} }; es.onerror = () => {}; this.es.push(es); return es; },
+  post(s, o) { return fetch(this.relay + '/' + this.topic(s), { method: 'POST', body: JSON.stringify(o) }); },
+  close() {
+    this.sess++; for (const e of this.es) try { e.close(); } catch (x) {} this.es = [];
+    for (const p of this.peers.values()) { try { p.dc && p.dc.close(); } catch (x) {} try { p.pc && p.pc.close(); } catch (x) {} } this.peers.clear();
+    try { this.dc && this.dc.close(); } catch (x) {} try { this.pc && this.pc.close(); } catch (x) {} this.pc = this.dc = null;
+    this.role = null; this.st = 'idle'; this.msg = ''; this.code = ''; this.input = ''; this.names = {}; this.tbl = {}; this.round = false; this.miss = ''; this.pid = 0;
+  },
+  gathered(pc) { return new Promise((res) => { if (pc.iceGatheringState === 'complete') return res(); const t = setTimeout(res, 4500); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }); }); },
+  myName() { return (Settings.name || '').trim().slice(0, 14) || (this.role === 'host' ? 'Host' : 'Player'); },
+  // ---------- host ----------
+  host() {
+    this.close(); this.role = 'host'; this.code = this.digits(); this.pid = 0; this.names = { 0: this.myName() }; this.st = 'live'; this.say('Room ' + this.code + ': friends choose Friends → Party → Join and type it in', 'live'); const id = this.sess;
+    this.sub('j', async (txt) => {
+      let j; try { j = JSON.parse(txt); } catch (e) { return; } if (!j || !j.g || this.peers.has(j.g) || id !== this.sess) return;
+      if (this.peers.size >= PARTY_MAX - 1) return;
+      let used = new Set([0]); for (const p of this.peers.values()) used.add(p.pid); let pid = 1; while (used.has(pid)) pid++;
+      const pc = new RTCPeerConnection({ iceServers: this.ice }), dc = pc.createDataChannel('party', { ordered: true }), P = { pc, dc, pid, g: j.g, name: (j.n || 'Player').slice(0, 14), open: false }; this.peers.set(j.g, P);
+      dc.onopen = () => { if (id !== this.sess) return; P.open = true; this.names[pid] = P.name; this.sendRoster(); this.say(this.count() + ' in the room', 'live'); if (this.round && Game.state === 'playing') this.sendTo(P, { k: 'late' }); };
+      dc.onclose = () => { if (id !== this.sess) return; this.peers.delete(j.g); delete this.names[pid]; delete this.tbl[pid]; this.sendRoster(); this.say(this.count() + ' in the room', 'live'); };
+      dc.onmessage = (e) => { if (id === this.sess) this.hostRecv(P, e.data); };
+      pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed') { this.peers.delete(j.g); delete this.names[pid]; this.sendRoster(); } };
+      try { await pc.setLocalDescription(await pc.createOffer()); await this.gathered(pc); if (id !== this.sess) return; await this.post('o', { g: j.g, type: pc.localDescription.type, sdp: pc.localDescription.sdp }); } catch (e) { this.peers.delete(j.g); }
+    });
+    this.sub('a', async (txt) => { let a; try { a = JSON.parse(txt); } catch (e) { return; } const P = a && this.peers.get(a.g); if (P && a.sdp && P.pc.signalingState === 'have-local-offer') { try { await P.pc.setRemoteDescription({ type: a.type, sdp: a.sdp }); } catch (e) {} } });
+  },
+  count() { return 1 + [...this.peers.values()].filter(p => p.open).length; },
+  // ---------- guest ----------
+  join(code) {
+    this.close(); this.role = 'guest'; this.code = code; this.gid = Math.random().toString(36).slice(2, 10); this.say('Looking for room ' + code + '…', 'opening'); const id = this.sess; let got = false;
+    const to = setTimeout(() => { if (!got && id === this.sess) this.say('No room ' + code + ' found. Check the code (the host opens the room first).', 'error'); }, 10000);
+    this.sub('o', async (txt) => {
+      let o; try { o = JSON.parse(txt); } catch (e) { return; } if (got || !o || o.g !== this.gid || !o.sdp) return; got = true; clearTimeout(to);
+      try {
+        this.say('Room found: connecting…', 'connecting'); const pc = this.pc = new RTCPeerConnection({ iceServers: this.ice });
+        pc.ondatachannel = (e) => { const dc = this.dc = e.channel; dc.onopen = () => { if (id !== this.sess) return; this.st = 'live'; this.say('Connected: wait for the host to start a song', 'live'); this.send({ k: 'hi', n: this.myName() }); }; dc.onclose = () => { if (id === this.sess && this.st === 'live') { this.say('Disconnected from the room', 'closed'); this.round = false; } }; dc.onmessage = (ev) => { if (id === this.sess) this.guestRecv(ev.data); }; };
+        pc.onconnectionstatechange = () => { if (id === this.sess && pc.connectionState === 'failed') this.say('Could not connect (a strict network or firewall?). Try again.', 'error'); };
+        await pc.setRemoteDescription({ type: o.type, sdp: o.sdp }); await pc.setLocalDescription(await pc.createAnswer()); await this.gathered(pc); if (id !== this.sess) return;
+        await this.post('a', { g: this.gid, type: pc.localDescription.type, sdp: pc.localDescription.sdp });
+      } catch (e) { this.say('Could not join: ' + (e && e.message ? e.message : e), 'error'); }
+    });
+    this.post('j', { g: this.gid, n: this.myName() }).catch(() => this.say('Could not reach the relay', 'error'));
+  },
+  send(o) { try { if (this.dc && this.dc.readyState === 'open') this.dc.send(JSON.stringify(o)); } catch (e) {} },
+  sendTo(P, o) { try { if (P.dc && P.dc.readyState === 'open') P.dc.send(JSON.stringify(o)); } catch (e) {} },
+  bcast(o, except) { const s = JSON.stringify(o); for (const P of this.peers.values()) if (P !== except && P.dc && P.dc.readyState === 'open') try { P.dc.send(s); } catch (e) {} },
+  sendRoster() { for (const P of this.peers.values()) this.sendTo(P, { k: 'roster', you: P.pid, p: this.names }); UI.dirty = true; },
+  // ---------- messages ----------
+  hostRecv(P, txt) {
+    let m; try { m = JSON.parse(txt); } catch (e) { return; }
+    if (m.k === 'hi') { P.name = (m.n || P.name).slice(0, 14); this.names[P.pid] = P.name; this.sendRoster(); }
+    else if (m.k === 's') { m.i = P.pid; this.tbl[P.pid] = Object.assign(this.tbl[P.pid] || {}, m, { at: performance.now() }); }
+    else if (m.k === 'fin') { const r = this.tbl[P.pid] = Object.assign(this.tbl[P.pid] || {}, { sc: m.sc | 0, cb: m.mc | 0, f: 1, fl: m.fl ? 1 : 0, ac: m.ac | 0, i: P.pid }); UI.dirty = true; }
+    else if (m.k === 'miss') { this.names[P.pid] = P.name; this.miss = P.name + ' is missing the song'; UI.dirty = true; }
+  },
+  guestRecv(txt) {
+    let m; try { m = JSON.parse(txt); } catch (e) { return; }
+    if (m.k === 'roster') { this.pid = m.you | 0; this.names = m.p || {}; UI.dirty = true; }
+    else if (m.k === 'tbl') { for (const r of m.p) { if (r.i === this.pid) continue; this.tbl[r.i] = Object.assign(this.tbl[r.i] || {}, r, { at: performance.now() }); } for (const k of Object.keys(this.tbl)) if (!(k in this.names)) delete this.tbl[k]; }
+    else if (m.k === 'start') this.begin(m);
+    else if (m.k === 'late') { UI.toast('A song is already playing: you join at the next one'); }
+    else if (m.k === 'end') { this.round = false; }
+  },
+  // ---------- rounds ----------
+  startRound() {                                                          // host only: everyone plays the host's song, difficulty and mode
+    if (this.role !== 'host') return; const it = Library.items[Library.selected]; if (!it || it.status !== 'ready') { UI.toast('Pick a song first'); return; }
+    if (Settings.mode === 'journey') { UI.toast('Journey is a ride, not a race: pick Game, Sabers, Punch, Drive-by or Guitar'); return; }
+    this.tbl = {}; this.miss = ''; this.round = true; this.me = { fin: false };
+    this.bcast({ k: 'start', key: it.key, name: it.name, diff: Settings.difficulty, mode: Settings.mode, flight: !!Settings.flight, rules: Settings.rules, view: Settings.partyView || 'ghost' });
+    UI.set(null); startSelected();
+  },
+  begin(m) {
+    const L = Library, idx = L.items.findIndex((i) => i.key === m.key); this.tbl = {}; this.round = true; this.me = { fin: false };
+    if (idx < 0 || L.items[idx].status !== 'ready') { this.round = false; this.miss = m.name || 'this song'; this.say('The host started "' + this.miss + '" and you do not have it yet. Add it in Find songs, then ask for another round.', 'live'); this.send({ k: 'miss' }); UI.toast('Missing song: ' + this.miss); return; }
+    Settings.mode = m.mode || 'play'; Settings.difficulty = m.diff | 0; Settings.flight = !!m.flight; if (m.rules) Settings.rules = m.rules; L.selected = idx; this.miss = '';
+    if (Game.state === 'playing' || Game.state === 'paused') { try { AudioEng.stop(); } catch (e) {} Game.state = 'menu'; }
+    startSelected(); UI.toast('Party round: ' + (m.name || 'song'));
+  },
+  onStart() { if (this.round) { this.me = { fin: false }; this.tx = 0; this.mk = null; } },
+  onEnd() {
+    if (!this.round && this.st !== 'live') return; const g = Game, o = { k: 'fin', sc: g.score | 0, mc: g.maxCombo | 0, fl: g.failed ? 1 : 0, ac: Math.round(100 * (g.hits || 0) / Math.max(1, (g.hits || 0) + (g.misses || 0))) };
+    this.me.fin = true;
+    if (this.role === 'host') this.tbl[0] = { i: 0, sc: o.sc, cb: o.mc, f: 1, fl: o.fl, ac: o.ac }; else this.send(o);
+  },
+  me10() { const g = Game; return { k: 's', t: +g.songT.toFixed(2), l: Math.round(g.lat * 100), a: Math.round((g.alt || 0) * 100), sc: g.score | 0, cb: g.combo | 0, h: g.hits | 0, m: g.misses | 0 }; },
+  tick(dt) {
+    if (this.st !== 'live') return; const g = Game, playing = this.round && g.state === 'playing' && !g.watch && g.songT > -3;
+    this.tx += dt; if (this.tx < 0.1) return; this.tx = 0;
+    if (playing) { const s = this.me10(); if (this.role === 'host') this.tbl[0] = Object.assign(this.tbl[0] || { i: 0 }, s, { i: 0, f: 0 }); else this.send(s); }
+    if (this.role === 'host' && this.round && this.peers.size) {
+      const now = performance.now(), p = []; for (const k of Object.keys(this.tbl)) { const r = this.tbl[k]; if (r.f !== 1 && r.at && now - r.at > 4000 && +k !== 0) continue; p.push({ i: +k, t: r.t, l: r.l, a: r.a, sc: r.sc, cb: r.cb, f: r.f ? 1 : 0, fl: r.fl, ac: r.ac }); }
+      this.bcast({ k: 'tbl', p });
+    }
+  },
+  // ---------- read-outs ----------
+  standings() {                                                           // everyone in the round, best first (finished players keep their final score)
+    const out = [], add = (i, n, r) => out.push({ i, n, sc: r.sc | 0, cb: r.cb | 0, f: !!r.f, fl: !!r.fl, t: r.t || 0, ac: r.ac || 0, you: i === this.pid, col: PARTY_COL[i % PARTY_COL.length] });
+    if (Game.state === 'playing' || Game.state === 'paused' || this.me.fin) { const g = Game; add(this.pid, this.names[this.pid] || this.myName(), this.me.fin && this.tbl[this.pid] ? this.tbl[this.pid] : { sc: g.score, cb: g.combo, f: this.me.fin, t: g.songT }); }
+    for (const k of Object.keys(this.tbl)) { const i = +k; if (i === this.pid) continue; add(i, this.names[i] || ('Player ' + i), this.tbl[k]); }
+    out.sort((a, b) => b.sc - a.sc); out.forEach((o, i) => { o.rank = i + 1; }); return out;
+  },
+  sig() { if (!this.round || Game.state !== 'playing') return ''; const s = this.standings(); return s.length < 2 ? '' : s.map(o => o.i + ':' + Math.round(o.sc / 50) + (o.f ? 'f' : '')).join(','); },
+  hudDraw(g) {                                                            // a small live leaderboard in the top-left of the HUD
+    const s = this.standings(); if (s.length < 2) return; const me = s.findIndex(o => o.you), show = s.slice(0, 4); if (me >= 4) show[3] = s[me];
+    g.save(); g.textBaseline = 'alphabetic'; const x = 8, y = 6, rh = 22, w = 196; UI.rr.call({ g }, x, y, w, 8 + show.length * rh, 10); g.fillStyle = 'rgba(8,4,28,0.62)'; g.fill();
+    show.forEach((o, k) => { const yy = y + 6 + k * rh + 16; g.font = UI.font(14, 900); g.fillStyle = o.col; g.textAlign = 'left'; g.fillText(String(o.rank), x + 8, yy); g.font = UI.font(14, o.you ? 900 : 600); g.fillStyle = o.you ? '#fff' : '#cfe'; g.fillText((o.n || '').slice(0, 9), x + 26, yy); g.textAlign = 'right'; g.fillText((o.f ? '✓ ' : '') + o.sc.toLocaleString(), x + w - 8, yy); });
+    g.restore();
+  },
+  // rivals for the renderer: where each other player is on the song and the track
+  rivals() {
+    const out = [], now = performance.now(); if (!this.round || Game.state !== 'playing') return out;
+    for (const k of Object.keys(this.tbl)) { const i = +k, r = this.tbl[k]; if (i === this.pid || r.f || r.l === undefined || (r.at && now - r.at > 3500)) continue; out.push({ i, lat: r.l / 100, alt: r.a / 100, t: r.t || 0, col: PARTY_COL[i % PARTY_COL.length], name: this.names[i] || '' }); }
+    return out;
+  },
+  // ---------- screen ----------
+  act(id, parts) {
+    const a = parts[0];
+    if (a === 'pt_host') this.host();
+    else if (a === 'pt_join') { this.close(); this.role = 'pick'; this.input = ''; this.msg = 'Type the 6 digit room code'; UI.dirty = true; }
+    else if (a === 'pt_key') { if (this.role !== 'pick') return; if (parts[1] === 'x') this.input = this.input.slice(0, -1); else if (this.input.length < 6) this.input += parts[1]; if (this.input.length === 6) { const c = this.input; this.role = null; this.join(c); } UI.dirty = true; }
+    else if (a === 'pt_start') this.startRound();
+    else if (a === 'pt_song') UI.set('home');
+    else if (a === 'pt_view') { Settings.partyView = Settings.partyView === 'tracks' ? 'ghost' : 'tracks'; saveSettings(); UI.dirty = true; }
+    else if (a === 'pt_leave') { this.close(); UI.dirty = true; }
+    else if (a === 'pt_back') UI.set(UI.screen === 'rank' ? 'results' : 'home');
+    else if (a === 'pt_rank') UI.set('rank');
+  },
+  draw(u) {
+    const g = u.g; u.panelBG(4, 4, UW - 8, UH - 8); u.title('Party', 'Up to 8 players, same song, any device');
+    u.button('pt_back', 836, 26, 162, 50, 'Back', { size: 22 });
+    if (!this.role && this.st === 'idle') {
+      u.button('pt_host', 70, 130, 420, 190, '', { r: 22 }); u.text('HOST A ROOM', 280, 200, u.font(26, 800), C.cy, 'center'); u.text('Pick the song and mode.', 280, 242, u.font(19, 500), C.dim, 'center'); u.text('Friends join with a room code.', 280, 270, u.font(19, 500), C.dim, 'center');
+      u.button('pt_join', 534, 130, 420, 190, '', { r: 22 }); u.text('JOIN A ROOM', 744, 200, u.font(26, 800), C.cy, 'center'); u.text('Type the host\'s room code.', 744, 242, u.font(19, 500), C.dim, 'center'); u.text('You need the same song in your library.', 744, 270, u.font(19, 500), C.dim, 'center');
+      u.text('Everyone plays the host\'s song and mode on their own device (headset, phone or screen). Free public relay only helps you find each other.', UW / 2, 380, u.font(17, 500), C.dim, 'center'); return;
+    }
+    if (this.role === 'pick') {
+      u.text(this.msg, UW / 2, 140, u.font(24, 700), C.tx, 'center');
+      for (let i = 0; i < 6; i++) { const x = 332 + i * 60; u.rr(x, 162, 52, 66, 12); g.fillStyle = 'rgba(255,255,255,0.08)'; g.fill(); u.text(this.input[i] || '', x + 26, 210, u.font(40, 800), C.cy, 'center'); }
+      ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'x', '0'].forEach((k, i) => { const x = 392 + (i % 3) * 86, y = 250 + ((i / 3) | 0) * 66; u.button('pt_key:' + k, x, y, 78, 58, k === 'x' ? '⌫' : k, { size: 28, weight: 800 }); });
+      return;
+    }
+    const host = this.role === 'host', it = Library.items[Library.selected];
+    if (host && this.code) u.text(this.code.slice(0, 3) + ' ' + this.code.slice(3), 250, 176, u.font(64, 900), C.gd, 'center');
+    u.text(this.msg, host ? 250 : UW / 2, host ? 214 : 150, u.font(host ? 17 : 22, 700), this.st === 'error' ? C.red : C.ok, host ? 'center' : 'center');
+    // roster
+    const ids = Object.keys(this.names).map(Number).sort((a, b) => a - b), x0 = host ? 520 : 312;
+    u.text('PLAYERS  ' + ids.length + ' / ' + PARTY_MAX, x0, 120, u.font(17, 700), C.dim);
+    ids.forEach((i, k) => { const y = 132 + k * 34; u.rr(x0, y, 440, 30, 10); g.fillStyle = 'rgba(255,255,255,0.07)'; g.fill(); g.beginPath(); g.arc(x0 + 18, y + 15, 7, 0, 7); g.fillStyle = PARTY_COL[i % PARTY_COL.length]; g.fill(); u.text((this.names[i] || '?') + (i === this.pid ? '  (you)' : '') + (i === 0 ? '  ★ host' : ''), x0 + 36, y + 21, u.font(18, i === this.pid ? 800 : 600), C.tx); });
+    if (host) {
+      u.text('SONG', 40, 262, u.font(15, 700), C.dim); u.text(u.fit(it ? it.name : 'none selected', 420, u.font(22, 700)), 40, 292, u.font(22, 700), C.tx);
+      u.text(({ play: 'Game', saber: 'Sabers', punch: 'Punch', drive: 'Drive-by', guitar: 'Guitar', journey: 'Journey (not for racing)' })[Settings.mode] + '  ·  ' + (DIFFICULTIES[Settings.difficulty] ? DIFFICULTIES[Settings.difficulty].name : ''), 40, 322, u.font(18, 600), C.dim);
+      u.button('pt_song', 40, 340, 420, 52, 'Change song, mode or difficulty', { size: 19 });
+      u.button('pt_start', 40, 410, 420, 76, 'START FOR EVERYONE', { primary: true, size: 26, weight: 800, dis: this.count() < 2 && false });
+    } else {
+      u.text('The host picks the song and mode. Everyone plays it on their own device.', UW / 2, 330, u.font(19, 500), C.dim, 'center');
+    }
+    u.button('pt_view', host ? 520 : 312, 452, 440, 48, 'Rivals: ' + ((Settings.partyView || 'ghost') === 'tracks' ? 'own side tracks' : 'ghost ships on my track'), { size: 18 });
+    if (this.miss) u.text(this.miss, UW / 2, 524, u.font(18, 600), C.gd, 'center');
+    u.button('pt_leave', 312, 522, 400, 50, host ? 'Close room' : 'Leave room', { size: 20 });
+  },
+  drawResults(u) {                                                         // final table, shown as its own screen from the results page
+    const g = u.g, s = this.standings(); u.panelBG(4, 4, UW - 8, UH - 8); u.title('Rankings', this.round ? 'Waiting for everyone to finish…' : 'Final scores'); u.button('pt_back', 836, 26, 162, 50, 'Back', { size: 22 });
+    s.slice(0, 8).forEach((o, k) => { const y = 120 + k * 58; u.rr(80, y, 864, 50, 14); g.fillStyle = o.you ? 'rgba(25,227,255,0.18)' : 'rgba(255,255,255,0.07)'; g.fill(); u.text(String(o.rank), 112, y + 36, u.font(30, 900), o.col, 'center'); u.text(o.n + (o.you ? '  (you)' : ''), 150, y + 34, u.font(24, o.you ? 800 : 600), C.tx); u.text(o.f ? (o.fl ? 'out' : 'done') : 'playing', 620, y + 34, u.font(18, 600), o.f ? C.ok : C.gd, 'center'); u.text(o.sc.toLocaleString(), 920, y + 36, u.font(28, 800), C.tx, 'right'); });
+    if (this.role === 'host') u.button('pt_song', 312, 566, 400, 40, 'Pick the next song', { size: 18 });
+  }
+};
+
 // ===== PILOT MODE in passthrough: the cockpit view with your real room around you =====
 // What a pilot needs when the room is the sky: see through the cockpit, an attitude display at eye level (so you never look down to know which way is up),
 // a stick that is where your hand is, wind that streams past you so speed is felt, and the room itself reporting hits, danger and overdrive.
@@ -7443,8 +7698,9 @@ const Spectate = {
     u.button('sp_back', 836, 26, 162, 50, 'Back', { size: 22 });
     const live = this.st === 'live', busy = this.st === 'opening' || this.st === 'waiting' || this.st === 'connecting';
     if (!this.role && !this.msg) {
-      u.button('sp_host', 70, 130, 420, 190, '', { r: 22, dis: UI.xr && false }); u.text('LET A FRIEND WATCH', 280, 200, u.font(26, 800), C.cy, 'center'); u.text('You play as normal.', 280, 242, u.font(19, 500), C.dim, 'center'); u.text('You get a room code to give them.', 280, 270, u.font(19, 500), C.dim, 'center');
-      u.button('sp_watch', 534, 130, 420, 190, '', { r: 22 }); u.text('WATCH A FRIEND', 744, 200, u.font(26, 800), C.cy, 'center'); u.text('Type their room code.', 744, 242, u.font(19, 500), C.dim, 'center'); u.text('You need the same song in your library.', 744, 270, u.font(19, 500), C.dim, 'center');
+      u.button('sp_party', 30, 130, 320, 190, '', { r: 22, primary: true }); u.text('PARTY', 190, 196, u.font(30, 900), C.gd, 'center'); u.text('Up to 8 players race the', 190, 238, u.font(18, 500), C.dim, 'center'); u.text('same song, any device.', 190, 264, u.font(18, 500), C.dim, 'center');
+      u.button('sp_host', 352, 130, 320, 190, '', { r: 22 }); u.text('LET A FRIEND WATCH', 512, 200, u.font(22, 800), C.cy, 'center'); u.text('You play as normal.', 512, 242, u.font(18, 500), C.dim, 'center'); u.text('You get a code to give them.', 512, 268, u.font(18, 500), C.dim, 'center');
+      u.button('sp_watch', 674, 130, 320, 190, '', { r: 22 }); u.text('WATCH A FRIEND', 834, 200, u.font(22, 800), C.cy, 'center'); u.text('Type their room code.', 834, 242, u.font(18, 500), C.dim, 'center'); u.text('Same song needed.', 834, 268, u.font(18, 500), C.dim, 'center');
       u.text('Works in Game and Journey modes. Connects directly between your devices (a free public relay only helps them find each other).', UW / 2, 380, u.font(17, 500), C.dim, 'center');
       return;
     }
@@ -7696,7 +7952,7 @@ async function startSelected() {
     const buffer = await Library.getBuffer(it);
     Input.target = 0; Input.rawPrev = 0; Input.recenterLean(); Gov.acc = 0; Gov.n = 0; Gov.bad = 0;
     Game.start({ key: it.key, name: it.name, analysis: it.analysis, buffer, bs: it.bs, ch: it.ch }, Settings.difficulty);
-    Spectate.onStart(); UI.set(null);
+    Spectate.onStart(); Party.onStart(); UI.set(null);
   } catch (e) { UI.set('home'); UI.toast('Could not start: ' + (e && e.message ? e.message : e)); }
   starting = false;
 }
@@ -7823,7 +8079,7 @@ function loop(time, frame) {
   if (inXR && Input.headOK) AudioEng.listen(Input.head, Input.headQ);
   MR.frame(dt, inXR ? frame : null, inXR ? renderer.xr.getReferenceSpace() : null);
   if (Game.state === 'playing') { if (Game.watch) Spectate.steer(dt); else if (Game.journey) Game.autoSteer(dt); else Game.latTarget = Input.target; }
-  Game.update(dt); if (Game.watch) Spectate.apply(dt); Spectate.tick(dt);
+  Game.update(dt); if (Game.watch) Spectate.apply(dt); Spectate.tick(dt); Party.tick(dt);
   if (Game.state !== lastState) {
     if (Game.state === 'results') { UI.set('results'); if (XR.session) placePanel(); }
     lastState = Game.state;
