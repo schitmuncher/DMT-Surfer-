@@ -4827,6 +4827,7 @@ Object.assign(R, {
   lightRef(a) { if (a._lref) return a._lref; const n = a.nF; if (!n) return (a._lref = 0.5); const s = []; for (let i = 0; i < n; i += 6) s.push(a.loud[i] / 200); s.sort((x, y) => x - y); return (a._lref = Math.max(0.12, s[Math.floor(s.length * 0.9)] || 0.4)); },
   lightTick(dt, g, songT, A) {
     const soft = !!(Settings.cFlash || Settings.cCalm || Settings.cMotion); let tgt = 1, snapDown = false, boost = 0;
+    if (g.state === 'playing' && songT < 6) { this.lumSil = 0; this.lum = 1; this.lumOut = 1; return; }          // the first six seconds are always fully lit: a quiet or silent intro, or a drop right at the start, must never hide the blocks
     if (g.state === 'playing' && A && A.nF && songT > 1.2 && !g.journey) {
       const ref = this.lightRef(A), L = Math.max(loudAt(A, songT - 0.08), loudAt(A, songT), loudAt(A, songT + 0.12)) / ref;
       this.lumSil = L < 0.085 ? this.lumSil + dt : 0;
@@ -5070,10 +5071,47 @@ const SKY_EXTRA = [
 }
 const Fresh = {
   pick(pick, I, rnd, useDark) {                                                    // some sections get one of the newer worlds; the scene mode settings still win
-    if (useDark || (Settings.scenes !== 'auto' && Settings.scenes !== 'trip') || rnd() > 0.3) return pick;
+    if (useDark || (Settings.scenes !== 'auto' && Settings.scenes !== 'trip') || rnd() > 0.4) return pick;
     const L = I < 0.4 ? NEW_SCENES.calm : I < 0.65 ? NEW_SCENES.mid : NEW_SCENES.high; return L[Math.floor(rnd() * 97) % L.length];
   }
 };
+
+// ===== MORE WORLDS: proper looks for the eighteen late scenes that had none, and fourteen new combinations of the existing skies, grounds, tunnels and dancers =====
+// LOOK holds what a world looks like on the road (target shape, target colour, road surface, road colour, rail tint). Scenes 92 to 109 were added after it and quietly fell back to the sunset look.
+{
+  const FIX = [
+    [24, [0.7, 1.0, 0.5], 12, [0.4, 1.0, 0.5], 0],   [27, 0, 5, [0.9, 0.7, 0.4], 0],              [11, [0.8, 1.0, 0.4], 18, [0.5, 0.9, 0.3], 0], [33, [1.1, 1.1, 1.2], 18, [0.7, 0.75, 0.9], 0],       // tractor beam, ringed world, spore fields, monoliths
+    [31, [0.8, 0.5, 1.2], 19, [0.5, 0.3, 1.0], 0],   [24, [0.9, 1.0, 1.2], 12, [0.5, 0.8, 1.0], 0], [35, [0.5, 1.2, 0.7], 16, [0.3, 0.9, 0.5], 0], [30, [1.2, 0.9, 0.7], 10, [1.0, 0.7, 0.6], 0],       // gravity well, first contact, xeno garden, alien dawn
+    [31, [1.0, 0.8, 1.2], 19, [0.8, 0.5, 1.0], 0],   [34, 0, 11, [0.4, 1.0, 0.9], 0],             [35, [0.4, 1.2, 0.6], 16, [0.2, 0.9, 0.5], 0], [1, [0.7, 0.9, 1.3], 4, [0.4, 0.6, 0.9], 0],            // machine elves, alien rave, neon forest, crystal canyon
+    [30, [1.1, 0.5, 0.9], 17, [0.9, 0.4, 0.8], 0],   [29, [1.2, 0.9, 0.35], 17, [0.8, 0.6, 0.25], 0], [24, [0.9, 0.95, 1.1], 12, [0.6, 0.7, 0.9], 0], [26, 0, 7, [0.7, 0.4, 1.0], 0],             // deep bloom, glyph temple, chrome sea, fractal garden
+    [33, [1.0, 1.0, 1.0], 18, [0.8, 0.85, 0.9], 0],  [30, [0.8, 1.2, 1.0], 10, [0.6, 0.9, 0.8], 0]  // dancing greys, spirit grove
+  ];
+  const first = 92; for (let i = 0; i < FIX.length && first + i < SCENES.length; i++) LOOK[first + i] = FIX[i];
+  const C = { tree: ['tree', 'flank', 0, 6.5, 6.0, 4.2, -0.3, 0], jelly: ['jelly', 'flank', 0, 19, 8.5, 2.4, 2.6, 0.5], spire: ['spire', 'flank', 0, 5.5, 5.4, 3.4, -0.4, 0], elf: ['elf', 'flank', 0, 15, 6.4, 2.0, 1.0, 0], grey: ['grey', 'crowd', 0, 6.5, 7.6, 2.4, 0] };
+  const N = [
+    ['GOLDEN HOUR',       { sky: 32, gm: 0, sides: 40, gs: 1,   spin: 0.0, pil: 2, mount: 0.6, tube: 0,  mv: 1, cr: [C.tree] },                [6, [1.2, 0.9, 0.4], 1, [1.0, 0.6, 0.3], 0]],
+    ['SKY HARBOUR',       { sky: 23, gm: 1, sides: 40, gs: 1,   spin: 0.1, pil: 1, mount: 0.9, tube: 0,  mv: 2, cr: [C.jelly] },               [1, [0.9, 1.0, 1.3], 4, [0.4, 0.7, 1.0], 0]],
+    ['PIXEL PARADISE',    { sky: 56, gm: 3, sides: 4,  gs: 1,   spin: 0.2, pil: 3, mount: 0.0, tube: 15, mv: 3 },                              [4, 0, 19, [0.4, 1.0, 0.5], 0]],
+    ['MOON MARKET',       { sky: 33, gm: 1, sides: 40, gs: 1,   spin: 0.1, pil: 5, mount: 0.3, tube: 13, mv: 3, cr: [C.tree, C.jelly] },       [26, [1.1, 1.0, 0.7], 5, [0.7, 0.8, 1.0], 0]],
+    ['VAPOR CITY',        { sky: 30, gm: 4, sides: 40, gs: 1,   spin: 0.0, pil: 0, mount: 0.0, tube: 14, mv: 4 },                              [34, 0, 11, [1.0, 0.4, 0.9], 0]],
+    ['SOLAR FLARE',       { sky: 67, gm: 2, sides: 6,  gs: 0.5, spin: 0.4, pil: 4, mount: 0.0, tube: 11, mv: 5 },                              [29, [1.3, 0.9, 0.3], 11, [1.0, 0.5, 0.15], 0]],
+    ['LIGHTHOUSE STORM',  { sky: 65, gm: 0, sides: 8,  gs: 1,   spin: 0.2, pil: 1, mount: 1.0, tube: 0,  mv: 5, cr: [C.spire] },              [1, [0.8, 0.9, 1.3], 4, [0.4, 0.5, 1.0], 0]],
+    ['GLASS GREENHOUSE',  { sky: 70, gm: 1, sides: 8,  gs: 1,   spin: 0.1, pil: 4, mount: 0.2, tube: 12, mv: 6, cr: [C.tree] },                [35, [0.5, 1.2, 0.8], 16, [0.3, 0.9, 0.6], 0]],
+    ['COTTON NEBULA',     { sky: 69, gm: 3, sides: 40, gs: 1,   spin: 0.1, pil: 0, mount: 0.0, tube: 0,  mv: 6, cr: [C.jelly] },               [30, [1.1, 0.7, 1.1], 10, [1.0, 0.6, 0.9], 0]],
+    ['EMERALD AURORA',    { sky: 71, gm: 1, sides: 40, gs: 1,   spin: 0.1, pil: 1, mount: 1.0, tube: 0,  mv: 3 },                              [24, [0.4, 1.2, 0.8], 12, [0.2, 0.9, 0.7], 0]],
+    ['AMBER DESERT',      { sky: 29, gm: 0, sides: 40, gs: 1,   spin: 0.0, pil: 2, mount: 0.8, tube: 0,  mv: 2, cr: [C.spire] },              [5, [1.2, 0.8, 0.4], 7, [1.0, 0.6, 0.3], 0.4]],
+    ['PRISM TUNNEL',      { sky: 1,  gm: 2, sides: 6,  gs: 0.5, spin: 0.6, pil: 3, mount: 0.0, tube: 15, mv: 4 },                              [24, [1.0, 1.0, 1.0], 21, [0.9, 0.6, 1.0], 0]],
+    ['DEEP SPACE DINER',  { sky: 65, gm: 4, sides: 8,  gs: 0.5, spin: 0.2, pil: 5, mount: 0.0, tube: 13, mv: 1, cr: [C.elf] },                 [0, [1.0, 0.5, 0.8], 12, [0.4, 0.9, 1.0], 0]],
+    ['SPORE DISCO',       { sky: 55, gm: 3, sides: 12, gs: 1,   spin: 0.3, pil: 4, mount: 0.2, tube: 11, mv: 6, cr: [C.jelly, C.spire] },       [11, [0.9, 1.0, 0.5], 18, [0.6, 1.0, 0.4], 0]]
+  ];
+  const N0 = SCENES.length; N.forEach((n, i) => { SCENES.push(Object.assign({ name: n[0] }, n[1])); LOOK[N0 + i] = n[2]; });
+  const id = (nm) => N0 + N.findIndex(n => n[0] === nm), add = (L, names) => names.forEach(nm => { if (L.indexOf(id(nm)) < 0) L.push(id(nm)); });
+  add(NEW_SCENES.calm, ['SKY HARBOUR', 'MOON MARKET', 'COTTON NEBULA', 'EMERALD AURORA', 'AMBER DESERT', 'GOLDEN HOUR', 'GLASS GREENHOUSE']);
+  add(NEW_SCENES.mid, ['GOLDEN HOUR', 'PIXEL PARADISE', 'VAPOR CITY', 'LIGHTHOUSE STORM', 'GLASS GREENHOUSE', 'SPORE DISCO', 'DEEP SPACE DINER', 'AMBER DESERT']);
+  add(NEW_SCENES.high, ['SOLAR FLARE', 'PRISM TUNNEL', 'VAPOR CITY', 'SPORE DISCO', 'PIXEL PARADISE', 'DEEP SPACE DINER', 'LIGHTHOUSE STORM']);
+  add(HAPPY_SCENES, ['GOLDEN HOUR', 'SKY HARBOUR', 'PIXEL PARADISE', 'COTTON NEBULA', 'EMERALD AURORA', 'AMBER DESERT']);
+  window.NEW_SCENES_MORE = { first: N0, count: N.length };
+}
 
 // ===== BEATSAVER: search, download, unzip and turn Beat Saber maps into charts for this game =====
 // A Beat Saber map is hand-placed by a human mapper, so its note times carry the "flow" of the song. We keep those times, fold the
@@ -6198,7 +6236,7 @@ const SETTING_ROWS = [
   { k: 'tilt', label: 'Camera tilt & bank', opts: ['auto', 'off', 'low', 'high'], names: ['Auto', 'Off', 'Low', 'High'] },
   { k: 'control', label: 'Steering (VR)', opts: ['grip', 'point', 'stick', 'lean'], names: ['Grip', 'Point', 'Stick', 'Lean'] },
   { k: 'touch', label: 'Touch steering', opts: ['lanes', 'tap', 'drag', 'slide'], names: ['Tap & slide', 'Tap sides', 'Drag (relative)', 'Slide (old)'] },
-  { k: 'stickDz', label: 'Stick dead zone (drift fix)', min: 0.1, max: 0.6, step: 0.05, fmt: (v) => Math.round(v * 100) + '%' },
+  { k: 'stickDz', label: 'Stick dead zone', min: 0.1, max: 0.6, step: 0.05, fmt: (v) => Math.round(v * 100) + '%' },
   { k: 'stickAuto', label: 'Ignore stuck stick', bool: true },
   { k: 'tiltAssist', label: 'Phone tilt steering', min: 0, max: 2, step: 0.25, fmt: (v) => v ? v.toFixed(2) + 'x' : 'Off' },
   { k: 'touchSpd', label: 'Touch steering speed', min: 0.5, max: 2.5, step: 0.25, fmt: (v) => v.toFixed(2) + 'x' },
@@ -6314,7 +6352,7 @@ const UI = {
       case 'sview': S.view = parts[1]; saveSettings(); break;
       case 'setup_open': this.set('setup'); break;
       case 'sback': this.set('home'); break;
-      case 'setpg': this.setPg = ((this.setPg | 0) + 1) % Math.max(1, Math.ceil(SETTING_ROWS.length / 22)); this.dirty = true; break;
+      case 'setpg': this.setPg = ((this.setPg | 0) + 1) % Math.max(1, Math.ceil(SETTING_ROWS.length / 20)); this.dirty = true; break;
       case 'setup_up': this.setTop = Math.max(0, (this.setTop | 0) - 3); this.dirty = true; break;
       case 'setup_dn': this.setTop = (this.setTop | 0) + 3; this.dirty = true; break;
       case 'comfort': this.set('comfort'); break;
@@ -6358,10 +6396,11 @@ const UI = {
       case 'settings': this.back = this.screen; this.set('settings'); break;
       case 'search': this.back = 'home'; this.kbOpen = false; this.set('search'); BS.open(); break;
       case 'sq': this.kbOpen = true; break;
-      case 'k': BS.type(parts[1]); break;
-      case 'kb_bs': BS.q = BS.q.slice(0, -1); break;
-      case 'kb_sp': BS.type(' '); break;
-      case 'kb_go': this.kbOpen = false; BS.run(false); break;
+      case 'k': if (this.screen === 'radio') Radio.type(parts[1]); else BS.type(parts[1]); break;
+      case 'kb_bs': if (this.screen === 'radio') Radio.q = Radio.q.slice(0, -1); else BS.q = BS.q.slice(0, -1); break;
+      case 'kb_sp': if (this.screen === 'radio') Radio.type(' '); else BS.type(' '); break;
+      case 'kb_go': this.kbOpen = false; if (this.screen === 'radio') Radio.search(); else BS.run(false); break;
+      case 'sdeath': S.deaths = !S.deaths; saveSettings(); break;
       case 'kb_hide': this.kbOpen = false; break;
       case 'bsget': this.bsGet(+parts[1]); break;
       case 'bsup': this.scrollList(-1); break;
@@ -6382,7 +6421,8 @@ const UI = {
     saveSettings(); if (this.onAct) this.onAct('applySettings');
   },
   typeKey(c) {
-    if (c === 'bksp') BS.q = BS.q.slice(0, -1); else if (c === 'enter') { this.kbOpen = false; BS.run(false); } else if (c.length === 1) BS.type(c);
+    if (this.screen === 'radio') { if (c === 'bksp') Radio.q = Radio.q.slice(0, -1); else if (c === 'enter') { this.kbOpen = false; Radio.search(); } else if (c.length === 1) Radio.type(c); }
+    else if (c === 'bksp') BS.q = BS.q.slice(0, -1); else if (c === 'enter') { this.kbOpen = false; BS.run(false); } else if (c.length === 1) BS.type(c);
     this.dirty = true;
   },
   bsGet(i) {
@@ -7258,7 +7298,11 @@ Object.assign(UI, {
     else y = ey;
     if (S.mode === 'play' || S.mode === 'journey') { const gx = (S.mode === 'guitar' || (sel && sel.bs)) ? (P ? R.x : R.x + 410) : R.x, gy = (P && (sel && sel.bs)) ? ey + 68 : ey; this.button('ghosts', gx, gy, P ? R.w : 300, P ? 60 : 40, '👻 Ghosts  ·  ' + (sel ? Ghosts.list('dmtsurf.ghost.' + sel.key + ':' + S.difficulty).length : 0) + ' saved  ▸', { size: P ? 22 : 17, r: 12 }); y = Math.max(y, gy + (P ? 68 : 48)); }
     if (S.mode === 'journey') { const gx2 = (sel && sel.bs) ? (P ? R.x : R.x + 410) : R.x, gy2 = (P && (sel && sel.bs)) ? ey + 68 : ey, lx = P ? R.x : gx2 + 310, ly = P ? gy2 + 68 : gy2; this.button('lv_open', lx, ly, P ? R.w : 330, P ? 60 : 40, '🎙 Live audio (mic)  ▸', { size: P ? 22 : 17, r: 12 }); y = Math.max(y, ly + (P ? 68 : 48)); }
-    const best = sel && L.best(sel, S.difficulty), hy = Math.min(y + (P ? 40 : 30), UH - (P ? 188 : 128));
+    const playY = P ? UH - 24 - 100 : UH - 26 - 76, relx = S.rules === 'relaxed', dth = S.mode !== 'journey', dh = P ? 64 : 42, dy = playY - dh - (P ? 12 : 10);
+    if (dth) { const on = S.deaths && !relx, col = on ? '#ff8a96' : C.gd; this.button(relx ? 'setup_open' : 'sdeath', R.x, dy, R.w, dh, '', { r: 14, sel: on });
+      if (P) { this.text(relx ? 'Relaxed rules' : on ? '☠  DEATHS ON' : '♥  DEATHS OFF', R.x + 20, dy + dh * 0.34, this.font(25, 800), col, 'left', 'middle'); this.text(this.fit(relx ? 'you cannot fail  ·  change in Settings' : on ? 'the show ends if the meter empties  ·  tap to switch' : 'you cannot fail  ·  tap to switch', R.w - 36, this.font(18, 500)), R.x + 20, dy + dh * 0.74, this.font(18, 500), C.dim, 'left', 'middle'); }
+      else { const lab = relx ? 'Relaxed rules: you cannot fail' : on ? '☠  DEATHS ON  ·  the show ends if the meter empties' : '♥  DEATHS OFF  ·  you cannot fail'; this.text(this.fit(lab, R.w - 150, this.font(18, 800)), R.x + 20, dy + dh / 2 + 1, this.font(18, 800), col, 'left', 'middle'); this.text(relx ? 'change in Settings' : 'tap to switch', R.x + R.w - 18, dy + dh / 2 + 1, this.font(14, 500), C.dim, 'right', 'middle'); } }
+    const best = sel && L.best(sel, S.difficulty), hy = Math.min(y + (P ? 40 : 30), (dth ? dy : UH - (P ? 188 : 128)) - (P ? 16 : 12));
     this.text(this.fit(S.mode === 'journey' ? 'Autopilot flies  ·  steer any time to take over' : MODE_HINT[S.mode] || (best ? 'Best  ' + best.score.toLocaleString() + '   ' + best.grade : 'No score yet on ' + DIFFICULTIES[S.difficulty].name), UW - 60, this.font(P ? 23 : 19, 600)), UW / 2, hy, this.font(P ? 23 : 19, 600), best && S.mode !== 'journey' ? C.gd : C.cy, 'center');
     const lab = Queue.arm ? '▶   START SET  ·  ' + Queue.items().length + ' songs' : S.mode === 'journey' ? '✦   BEGIN JOURNEY' : S.mode === 'saber' ? '⚔   SLICE' : S.mode === 'punch' ? '✊   PUNCH' : S.mode === 'drive' ? '🔫   DRIVE' : S.mode === 'guitar' ? '🎸   ROCK' : '▶   START';
     if (P) this.button('play', R.x, UH - 24 - 100, R.w, 100, lab, { primary: true, size: 38, weight: 800, dis: !sel || sel.status !== 'ready' });
@@ -7278,7 +7322,7 @@ Object.assign(UI, {
     const P = this.pt, rows = SETTING_ROWS, R = this.frame('Settings', '', P ? null : null);
     const bot = P ? 3 : 1, by = UH - (P ? 24 + 140 : 26 + 50); let top = R.y - 8;
     if (!P) {
-      const per = 11, pages = Math.ceil(rows.length / (per * 2)); this.setPg = clamp(this.setPg | 0, 0, pages - 1); const cw = (R.w - 20) / 2, rh = 38, st = 42, y0 = R.y - 4;
+      const per = 10, pages = Math.ceil(rows.length / (per * 2)); this.setPg = clamp(this.setPg | 0, 0, pages - 1); const cw = (R.w - 20) / 2, rh = 38, st = 42, y0 = R.y - 4;
       for (let i = 0; i < per * 2; i++) { const row = rows[this.setPg * per * 2 + i]; if (!row) break; this.settingRow(row, R.x + (i < per ? 0 : cw + 20), y0 + (i % per) * st, cw, rh); }
       if (pages > 1) this.button('setpg', UW - 36 - 190, 26, 190, 46, 'Page ' + (this.setPg + 1) + ' / ' + pages + '  ›', { size: 19 });
       this.text('Hits feel early? Raise the audio offset.  Wired headphones = lowest latency.', R.x, by - 12, this.font(16, 500), C.dim);
@@ -8368,23 +8412,24 @@ const Pilot = {
 // ===== RADIO: free-to-listen music (Creative Commons and public domain) from the Internet Archive's netlabel and Free Music Archive collections. No account, no ads: pick a genre, tap a row, and the tracks are added to your library and analysed like any song =====
 const RADIO_GENRES = [['Electronic', 'electronic OR techno OR house OR trance OR synthwave'], ['Ambient', 'ambient OR chillout OR downtempo'], ['Rock', 'rock OR punk OR metal OR indie'], ['Hip hop', 'hip-hop OR hiphop OR rap OR beats'], ['Classical', 'classical OR orchestral OR piano'], ['Jazz & funk', 'jazz OR funk OR soul'], ['Chiptune', 'chiptune OR 8bit OR videogame'], ['Folk', 'folk OR acoustic OR country'], ['Dance', 'dance OR edm OR "drum and bass" OR dubstep'], ['Lo-fi', 'lofi OR lo-fi OR instrumental']];
 const Radio = {
-  API: 'https://archive.org', g: 0, results: [], page: 0, more: true, loading: false, error: '', top: 0, dl: {}, done: {}, gen: 0, vis: 6, from: 'home',
+  API: 'https://archive.org', g: 0, q: '', results: [], page: 0, more: true, loading: false, error: '', top: 0, dl: {}, done: {}, gen: 0, vis: 6, from: 'home',
   licLabel(u) {                                                            // 'creativecommons.org/licenses/by-nc-sa/3.0/' -> 'CC BY-NC-SA 3.0'; anything that is not CC or public domain is not offered
     const s = String(u || ''); if (/publicdomain|\/zero\//i.test(s)) return 'Public domain'; const m = s.match(/creativecommons\.org\/licenses\/([a-z-]+)\/?([\d.]*)/i); return m ? 'CC ' + m[1].toUpperCase() + (m[2] ? ' ' + m[2] : '') : '';
   },
-  open(from) { this.from = from || 'home'; UI.set('radio'); if (!this.results.length && !this.loading) this.run(false); },
+  open(from) { this.from = from || 'home'; UI.kbOpen = false; UI.set('radio'); if (!this.results.length && !this.loading) this.run(false); },
   async run(more) {
     const gen = more ? this.gen : ++this.gen; if (!more) { this.page = 0; this.results = []; this.more = true; this.top = 0; }
     this.loading = true; this.error = ''; UI.dirty = true;
     try {
-      const q = 'mediatype:audio AND collection:(netlabels OR freemusicarchive) AND subject:(' + RADIO_GENRES[this.g][1] + ')';
-      const url = this.API + '/advancedsearch.php?q=' + encodeURIComponent(q) + '&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=licenseurl&sort%5B%5D=downloads+desc&rows=30&page=' + (this.page + 1) + '&output=json';
+      const words = this.q.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean).slice(0, 6), T = words.join(' AND ');
+      const q = 'mediatype:audio AND collection:(netlabels OR freemusicarchive) AND ' + (words.length ? '(title:(' + T + ') OR creator:(' + T + ') OR subject:(' + T + '))' : 'subject:(' + RADIO_GENRES[this.g][1] + ')');
+      const url = this.API + '/advancedsearch.php?q=' + encodeURIComponent(q) + '&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=licenseurl' + (words.length ? '' : '&sort%5B%5D=downloads+desc') + '&rows=30&page=' + (this.page + 1) + '&output=json';
       const r = await fetch(url); if (!r.ok) throw new Error('Radio search failed (' + r.status + ')');
       const j = await r.json(); if (gen !== this.gen) return; const docs = (j.response && j.response.docs) || [];
       const first = (x) => Array.isArray(x) ? x[0] : x;
       for (const d of docs) { const lic = this.licLabel(first(d.licenseurl)); if (!lic || !d.identifier || this.results.some(o => o.id === d.identifier)) continue; this.results.push({ id: d.identifier, title: String(first(d.title) || d.identifier), artist: String(first(d.creator) || 'Unknown artist'), lic }); }
       this.page++; this.more = docs.length >= 30 && this.page < 8;
-      if (!this.results.length) this.error = this.more ? '' : 'No free tracks found here: try another genre';
+      if (!this.results.length) this.error = this.more ? '' : (this.q.trim() ? 'No free tracks found for "' + this.q.trim() + '"' : 'No free tracks found here: try another genre');
       if (!this.results.length && this.more) { this.loading = false; return this.run(true); }
     } catch (e) { if (gen === this.gen) { this.error = (e && e.message && !/fetch|network|load failed/i.test(e.message)) ? e.message : 'Could not reach the music archive. Check your connection (or this browser may be blocking it).'; this.more = false; } }
     if (gen === this.gen) this.loading = false; UI.dirty = true;
@@ -8406,23 +8451,35 @@ const Radio = {
     } catch (e) { UI.toast((e && e.message && !/fetch|network|load failed/i.test(e.message)) ? e.message : 'Download blocked or failed - try another'); }
     delete this.dl[d.id]; UI.dirty = true;
   },
+  type(ch) { if (this.q.length < 40) this.q += ch; UI.dirty = true; },
+  search() { this.g = this.q.trim() ? -1 : Math.max(0, this.g); UI.kbOpen = false; this.run(false); },
   scroll(d) { const n = this.results.length; this.top = clamp(this.top + d * Math.max(1, this.vis - 1), 0, Math.max(0, n - this.vis)); if (this.top + this.vis >= n - 2 && this.more && !this.loading && n) this.run(true); UI.dirty = true; },
   act(id, parts) {
     if (id === 'rd_open') this.open(UI.screen);
     else if (id === 'rd_back') UI.set(this.from === 'radio' || !this.from ? 'home' : this.from);
-    else if (parts[0] === 'rd_gen') { this.g = +parts[1] | 0; this.run(false); }
+    else if (parts[0] === 'rd_gen') { this.g = +parts[1] | 0; this.q = ''; UI.kbOpen = false; this.run(false); }
     else if (parts[0] === 'rd_get') { const d = this.results[+parts[1]]; if (d) this.get(d); }
     else if (id === 'rd_retry') this.run(this.results.length > 0);
     else if (id === 'rd_up') this.scroll(-1);
     else if (id === 'rd_dn') this.scroll(1);
   },
+  keyboard(u, R, P) {
+    const rows = ['1234567890', 'qwertyuiop', 'asdfghjkl', 'zxcvbnm'], kg = 6, kw = (R.w - 9 * kg) / 10, rh = P ? 84 : 56, ky = R.b - 5 * (rh + kg);
+    u.text(this.q ? u.fit(this.q, R.w, u.font(P ? 28 : 22, 700)) + '▏' : 'Type to search', UW / 2, ky - 18, u.font(P ? 28 : 22, 700), this.q ? C.cy : C.dim, 'center');
+    rows.forEach((row, r) => { const w = row.length * (kw + kg) - kg, x0 = (UW - w) / 2; for (let i = 0; i < row.length; i++) u.button('k:' + row[i], x0 + i * (kw + kg), ky + r * (rh + kg), kw, rh, row[i].toUpperCase(), { size: P ? 30 : 24, r: 12 }); });
+    const by = ky + 4 * (rh + kg), u1 = (R.w - 3 * kg) / 8; u.button('kb_sp', R.x, by, u1 * 4 + kg * 3, rh, 'space', { size: P ? 24 : 20, r: 12 }); u.button('kb_bs', R.x + u1 * 4 + kg * 4, by, u1, rh, '⌫', { size: P ? 30 : 24, r: 12 }); u.button('kb_hide', R.x + u1 * 5 + kg * 5, by, u1 * 1.5, rh, 'Hide', { size: P ? 22 : 18, r: 12 }); u.button('kb_go', R.x + u1 * 6.5 + kg * 6, by, u1 * 1.5, rh, 'Search', { primary: true, size: P ? 24 : 20, weight: 800 });
+  },
   draw(u) {
     const P = u.pt, g = u.g, R = u.frame('Radio', 'Free music · Creative Commons · no ads', 'rd_back', 'Back'); let y = R.y;
-    const cols = P ? 3 : 5, gap = 8, ch = P ? 60 : 44, cw = (R.w - gap * (cols - 1)) / cols;
+    const sh = P ? 64 : 46, sbw = P ? 150 : 130; u.button('sq', R.x, y, R.w - sbw - 8, sh, '', { r: 14, sel: u.kbOpen }); const qf = u.font(P ? 26 : 21, 600);
+    u.text(this.q ? u.fit(this.q, R.w - sbw - 50, qf) + (u.kbOpen ? '▏' : '') : (u.kbOpen ? '▏' : (P ? 'Search artist or title…' : 'Search by artist, title or style…')), R.x + 16, y + sh * 0.66, qf, this.q ? C.tx : C.dim);
+    u.button('kb_go', R.x + R.w - sbw, y, sbw, sh, 'Search', { primary: true, size: P ? 24 : 20, weight: 800 }); y += sh + 8;
+    if (u.kbOpen) { this.keyboard(u, R, P); return; }
+    const cols = P ? 3 : 5, gap = 8, ch = P ? 56 : 40, cw = (R.w - gap * (cols - 1)) / cols;
     RADIO_GENRES.forEach((q, i) => u.chip('rd_gen:' + i, R.x + (i % cols) * (cw + gap), y + ((i / cols) | 0) * (ch + gap), cw, ch, q[0], '', i === this.g, { ls: P ? 23 : 18 }));
     y += Math.ceil(RADIO_GENRES.length / cols) * (ch + gap) + 6;
     const barH = P ? 84 : 0, lw = R.w - (P ? 0 : 70), rh = P ? 92 : 62, rg = 6, bot = R.b - barH - (P ? 6 : 24), n = this.results.length; this.vis = Math.max(2, Math.floor((bot - y + rg) / (rh + rg))); this.top = clamp(this.top, 0, Math.max(0, n - this.vis));
-    if (!n) { const msg = this.loading ? 'Finding music…' : this.error || 'Pick a genre'; u.wrap(msg, R.x + R.w / 2, y + 60, R.w - 40, u.font(P ? 26 : 20, 600), this.error ? '#ff6a6a' : C.dim, P ? 36 : 28, 4, 'center'); if (this.error) u.button('rd_retry', R.x + R.w / 2 - 110, y + 150, 220, P ? 66 : 50, 'Try again', { size: P ? 26 : 20 }); }
+    if (!n) { const msg = this.loading ? 'Finding music…' : this.error || (this.q.trim() ? 'No free tracks found: try another word' : 'Pick a genre or search'); u.wrap(msg, R.x + R.w / 2, y + 60, R.w - 40, u.font(P ? 26 : 20, 600), this.error ? '#ff6a6a' : C.dim, P ? 36 : 28, 4, 'center'); if (this.error) u.button('rd_retry', R.x + R.w / 2 - 110, y + 150, 220, P ? 66 : 50, 'Try again', { size: P ? 26 : 20 }); }
     for (let r = 0; r < this.vis; r++) {
       const i = this.top + r; if (i >= n) break; const d = this.results[i], yy = y + r * (rh + rg), busy = this.dl[d.id] !== undefined, got = !!this.done[d.id];
       u.button('rd_get:' + i, R.x, yy, lw, rh, '', { r: 14, dis: busy });
@@ -8749,7 +8806,7 @@ const TUT_PAGES = [
     ['p', 'DMT Surf turns any song into a track. Your ship rides a neon road that bends, rises and pulses with the music, and the notes are placed on the beat.'],
     ['h', 'Getting going'], ['li', 'Pick a song on the home screen (three are built in), press PLAY, then choose a mode and difficulty.'], ['li', 'Add your own music with + Add on the flat page, or search thousands of Beat Saber maps with Search.'], ['li', 'Hit READY, START. The countdown gives you a few seconds to settle in.'],
     ['h', 'What the numbers mean'], ['k', 'Score', 'Every note you get scores points. Perfect timing scores more.'], ['k', 'Multiplier', 'Build a combo to raise it (x2, x4, x8). A miss or crash drops it.'], ['k', 'Streaks', 'Long runs earn HEATING UP, ON FIRE, ASCENDED and TRANSCENDENT.'], ['k', 'Grades', 'S, A, B, C, D, F at the end, from your accuracy and score.'],
-    ['h', 'Staying alive'], ['p', 'Misses and crashes drain the rock meter (the coloured bar). If it empties the show is over, unless you turn Deaths off or choose Relaxed rules in Settings. Game mode also gives you three shields.'],
+    ['h', 'Staying alive'], ['p', 'Misses and crashes drain the rock meter (the coloured bar). If it empties the show is over, unless you turn Deaths off (the Deaths bar above START on the Ready screen) or choose Relaxed rules in Settings. Game mode also gives you three shields.'],
     ['h', 'Overdrive (star power)'], ['p', 'Good play fills the star meter. With it at half or more, press the overdrive control for a burst of double points. Controls for each device are on the Controls page.'],
     ['tip', 'New? Start on Chill, Game mode. Everything else is the same skills in different clothes.']] },
   { id: 'game', t: 'Game mode', sub: 'Collect, dodge, turn', b: () => [
@@ -8809,7 +8866,7 @@ const TUT_PAGES = [
   { id: 'songs', t: 'Songs & sets', sub: 'Your music, your maps', b: () => [
     ['h', 'Adding songs'], ['li', '+ Add file: any mp3, ogg, wav or similar. The game analyses it once and keeps it.'], ['li', 'Search: thousands of Beat Saber maps from BeatSaver. Filter by genre, rating or year, tap GET, and it is added.'], ['li', 'Clone Hero charts can be added too, for Guitar mode.'],
     ['h', 'Organising'], ['k', '★', 'Favourite a song. Save favs and Load favs back them up or move them to another device.'], ['k', '+Q', 'Line songs up in order and press PLAY SET to play them back to back.'], ['k', 'Speed', 'Track speed from 0.7x to 1.4x makes any song easier or harder.'],
-    ['h', 'Radio: free music'], ['p', 'Tap Radio on the home page, pick a genre and tap a row. Up to 3 tracks per item are added to your library and analysed. Everything there is Creative Commons or public domain, with no ads. It comes from the Internet Archive; each licence stays with its artist.'],
+    ['h', 'Radio: free music'], ['p', 'Tap Radio on the home page, pick a genre or search by artist or title, then tap a row. Up to 3 tracks per item are added to your library and analysed. Everything there is Creative Commons or public domain, with no ads. It comes from the Internet Archive; each licence stays with its artist.'],
     ['h', 'Maps and analysis'], ['p', 'Beat Saber maps can play as written, or use the game\'s own analysis, or both together (Chart source on the Ready screen). Your best score and grade show per song and difficulty.'],
     ['tip', 'On a headset, add files from a computer or phone first (the file picker is on the flat page), then they appear in VR.']] },
   { id: 'party', t: 'Party', sub: 'Up to 8 players', b: () => [
@@ -8881,7 +8938,7 @@ const Tut = {
       if (it.k === 'h') u.text(it.t, ox, yy + 24 * S, it.font, C.cy);
       else if (it.k === 'p') it.ls.forEach((l, i) => u.text(l, ox, yy + (i + 1) * it.lh - 6, it.font, C.tx));
       else if (it.k === 'li') { it.ls.forEach((l, i) => { if (i === 0) u.text('•', ox + 2, yy + it.lh - 6, it.font, C.cy); u.text(l, ox + 24 * S, yy + (i + 1) * it.lh - 6, it.font, C.tx); }); }
-      else if (it.k === 'k') { u.rr(ox, yy, it.kw, it.hh, 10); g.fillStyle = 'rgba(25,227,255,0.14)'; g.fill(); it.kl.forEach((l, i) => u.text(l, ox + it.kw / 2, yy + 5 + (i + 1) * it.kh - 5, it.kf, C.cy, 'center')); it.ls.forEach((l, i) => u.text(l, ox + it.kw + 14, yy + (i + 1) * it.lh - 6, it.font, C.tx)); }
+      else if (it.k === 'k') { u.rr(ox, yy, it.kw, Math.min(it.hh, it.kl.length * it.kh + 14), 10); g.fillStyle = 'rgba(25,227,255,0.14)'; g.fill(); it.kl.forEach((l, i) => u.text(l, ox + it.kw / 2, yy + 5 + (i + 1) * it.kh - 5, it.kf, C.cy, 'center')); it.ls.forEach((l, i) => u.text(l, ox + it.kw + 14, yy + (i + 1) * it.lh - 6, it.font, C.tx)); }
       else if (it.k === 'tip') { const th = it.ls.length * it.lh + 20; u.rr(ox, yy, vw - 2 * pad, th, 12); g.fillStyle = 'rgba(255,211,77,0.12)'; g.fill(); g.fillStyle = C.gd; g.fillRect(ox, yy + 6, 4, th - 12); it.ls.forEach((l, i) => u.text(l, ox + 18, yy + 10 + (i + 1) * it.lh - 6, it.font, C.gd)); }
     }
     g.restore();
@@ -9062,6 +9119,7 @@ async function startSelected() {
     Input.target = 0; Input.rawPrev = 0; Input.recenterLean(); Gov.acc = 0; Gov.n = 0; Gov.bad = 0;
     Game.start({ key: it.key, name: it.name, analysis: it.analysis, buffer, bs: it.bs, ch: it.ch }, Settings.difficulty);
     Spectate.onStart(); Party.onStart(); UI.set(null);
+    if (!Game.journey) UI.toast(Settings.rules === 'relaxed' ? 'Relaxed rules: you cannot fail' : Settings.deaths ? '☠ Deaths ON: if the meter empties the show ends' : '♥ Deaths OFF: you cannot fail');
   } catch (e) { UI.set('home'); UI.toast('Could not start: ' + (e && e.message ? e.message : e)); }
   starting = false;
 }
@@ -9118,7 +9176,7 @@ function handleEvents(list) {
       case 'restart': if (st === 'paused' || st === 'results') handleAct('retry'); break;
       case 'recenter': if (XR.session && st !== 'playing') XR.needRecenter = true; break;
       case 'view': handleAct('view'); break;
-      case 'char': if (sc === 'search') UI.typeKey(e.c); break;
+      case 'char': if (sc === 'search' || sc === 'radio') UI.typeKey(e.c); break;
       case 'lane': if (st === 'playing' && !XR.session) Input.target = e.n - 2; break;
     }
   }
