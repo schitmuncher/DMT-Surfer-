@@ -21,6 +21,7 @@ html,body{margin:0;height:100%;overscroll-behavior:none;-webkit-touch-callout:no
 #tod.rdy{background:linear-gradient(135deg,#19e3ff,#ff3fd0);color:#06041a;box-shadow:0 0 28px #ff3fd0}
 #tfs{position:fixed;display:none;z-index:5;top:max(10px,env(safe-area-inset-top));left:max(10px,env(safe-area-inset-left));width:44px;height:44px;border-radius:22px;border:0;background:rgba(34,29,74,.62);color:#eef3ff;font:700 22px system-ui;touch-action:none;-webkit-tap-highlight-color:transparent;opacity:.8}
 #tfs.play{opacity:.28}
+@media (orientation:portrait){#tfs:not(.play){display:none!important}}
 #rot{position:fixed;inset:0;z-index:6;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:rgba(5,3,15,.94);text-align:center;font-size:20px;padding:24px}
 #rot b{color:#19e3ff;font-size:26px} #rot button{border:0;border-radius:14px;padding:14px 26px;font:700 18px system-ui;background:#2a2362;color:#eef3ff}
 #hell{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:2;background:radial-gradient(ellipse at 50% 60%,rgba(120,0,0,0) 35%,rgba(160,10,0,.55) 100%)}
@@ -3492,24 +3493,28 @@ const R = {
     g.font = UI.font(120, 900); g.fillStyle = col; g.fillText(String(n), 112, 168); g.font = UI.font(70, 900); g.fillStyle = '#fff'; g.fillText(turn ? '⟳' : '⟲', 575, 120);
     W.tex.needsUpdate = true;
   },
-  partyRivals(dt, g, songT, speed, rk0, now) {                          // other players in a Party round: ghost ships on your track, or small side tracks of their own
+  partyRivals(dt, g, songT, speed, rk0, now) {                          // other players in a Party round: bright ghost ships (with a name tag and a beam to the floor) on your track, or small side tracks of their own
     const P = this.rivalP || (this.rivalP = []), list = (typeof Party !== 'undefined' && Party.round && g.state === 'playing' && songT >= -1) ? Party.rivals() : [], tracks = Settings.partyView === 'tracks';
     while (P.length < Math.min(7, list.length)) {
       const grp = new THREE.Group(), body = new THREE.ConeGeometry(0.13, 0.62, 5); body.rotateX(-Math.PI / 2);
-      const ship = new THREE.Mesh(body, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.02, 6, 24), ship.material); ring.rotation.x = Math.PI / 2;
-      const pan = new THREE.Mesh(new THREE.PlaneGeometry(5 * LANE_W * 0.55, 9), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })); pan.rotation.x = -Math.PI / 2; pan.position.set(0, 0.04, -3.5);
-      const dv = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([1, 2, 3, 4].flatMap(k => [new THREE.Vector3((k / 5 - 0.5) * 5 * LANE_W * 0.55, 0.05, -8), new THREE.Vector3((k / 5 - 0.5) * 5 * LANE_W * 0.55, 0.05, 1)])), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending }));
-      const sh = new THREE.Group(); sh.add(ship); sh.add(ring); grp.add(pan); grp.add(dv); grp.add(sh); grp.userData = { ship: sh, pan, dv, mat: ship.material, pm: pan.material, dm: dv.material, x: 0, y: 0, z: SHIP_Z };
+      const ship = new THREE.Mesh(body, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending })); ship.renderOrder = 20;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.03, 6, 24), ship.material); ring.rotation.x = Math.PI / 2; ring.renderOrder = 20;
+      const pan = new THREE.Mesh(new THREE.PlaneGeometry(5 * LANE_W * 0.55, 9), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })); pan.rotation.x = -Math.PI / 2; pan.position.set(0, 0.04, -3.5);
+      const dv = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([1, 2, 3, 4].flatMap(k => [new THREE.Vector3((k / 5 - 0.5) * 5 * LANE_W * 0.55, 0.05, -8), new THREE.Vector3((k / 5 - 0.5) * 5 * LANE_W * 0.55, 0.05, 1)])), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }));
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1, 5), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+      const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64; const tex = new THREE.CanvasTexture(cv); const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false })); tag.renderOrder = 30; tag.scale.set(2.2, 0.55, 1);
+      const sh = new THREE.Group(); sh.add(ship); sh.add(ring); grp.add(pan); grp.add(dv); grp.add(sh); grp.add(beam); grp.add(tag); grp.userData = { ship: sh, pan, dv, beam, tag, cv, tex, txt: '', mat: ship.material, pm: pan.material, dm: dv.material, bm: beam.material, x: 0, y: 0, z: SHIP_Z };
       grp.visible = false; grp.frustumCulled = false; this.rig.add(grp); P.push(grp);
     }
     for (let k = 0; k < P.length; k++) {
       const grp = P[k], r = list[k], u = grp.userData; if (!r) { grp.visible = false; continue; } grp.visible = true;
-      const col = new THREE.Color(r.col); u.mat.color.copy(col); u.pm.color.copy(col); u.dm.color.copy(col); u.pan.visible = u.dv.visible = tracks;
-      const lead = clamp((r.t - songT) * speed, -9, 12), kk = (k >> 1) + 1, side = (k & 1) ? 1 : -1;
-      if (tracks) { const lw = LANE_W * 0.55; grp.position.set(side * (5.6 + 4.2 * (kk - 1)), 0, 0); u.tx = r.lat * lw; u.tz = SHIP_Z - clamp(lead * 0.3, -3.4, 4.2); u.ty = 0.3 + r.alt * HI_Y * 0.5; }
-      else { grp.position.set(0, 0, 0); u.tx = r.lat * LANE_W * rk0; u.tz = SHIP_Z - lead; u.ty = 0.4 + r.alt * HI_Y + 0.05 * Math.sin(now * 3 + k); }
-      const e = Math.min(1, dt * 9); u.x += (u.tx - u.x) * e; u.y += (u.ty - u.y) * e; u.z += (u.tz - u.z) * e; u.ship.position.set(u.x, u.y, u.z); u.ship.rotation.z = clamp((u.tx - u.x) * -0.6, -0.6, 0.6); u.ship.scale.setScalar(tracks ? 1.3 : 2.4);
+      const col = new THREE.Color(r.col); u.mat.color.copy(col); u.pm.color.copy(col); u.dm.color.copy(col); u.bm.color.copy(col); u.pan.visible = u.dv.visible = tracks; u.beam.visible = !tracks;
+      const lead = clamp((r.t - songT) * speed, -9, 12), kk = (k >> 1) + 1, side = (k & 1) ? 1 : -1, txt = r.name + '|' + r.rank + '|' + r.col;
+      if (u.txt !== txt) { u.txt = txt; const c = u.cv.getContext('2d'); c.clearRect(0, 0, 256, 64); c.fillStyle = 'rgba(8,4,28,0.72)'; c.beginPath(); c.roundRect ? c.roundRect(4, 8, 248, 48, 14) : c.rect(4, 8, 248, 48); c.fill(); c.lineWidth = 3; c.strokeStyle = r.col; c.stroke(); c.font = '800 28px system-ui'; c.textBaseline = 'middle'; c.fillStyle = r.col; c.textAlign = 'left'; c.fillText('#' + r.rank, 16, 33); c.fillStyle = '#fff'; c.fillText((r.name || 'Player').slice(0, 9), 70, 33); u.tex.needsUpdate = true; }
+      if (tracks) { const lw = LANE_W * 0.55; grp.position.set(side * (5.2 + 3.6 * (kk - 1)), 0, 0); u.tx = r.lat * lw; u.tz = SHIP_Z - clamp(lead * 0.3, -3.4, 4.2); u.ty = 0.3 + r.alt * HI_Y * 0.5; }
+      else { grp.position.set(0, 0, 0); u.tx = r.lat * LANE_W * rk0; u.tz = SHIP_Z - lead; u.ty = 0.55 + r.alt * HI_Y + 0.06 * Math.sin(now * 3 + k); }
+      const e = Math.min(1, dt * 9); u.x += (u.tx - u.x) * e; u.y += (u.ty - u.y) * e; u.z += (u.tz - u.z) * e; u.ship.position.set(u.x, u.y, u.z); u.ship.rotation.z = clamp((u.tx - u.x) * -0.6, -0.6, 0.6); u.ship.scale.setScalar(tracks ? 1.5 : 3.0);
+      u.tag.position.set(u.x, u.y + (tracks ? 0.75 : 1.15), u.z); u.beam.position.set(u.x, u.y / 2, u.z); u.beam.scale.set(1, Math.max(0.05, u.y), 1);
     }
   },
   buildGhost() {                                                         // your best run on this song: a faint, slowly turning diamond that flies the line you flew
@@ -6175,7 +6180,8 @@ const CSRC_LABEL = { map: 'Chart: BEAT SABER MAP  ▸', house: 'Chart: IN-HOUSE 
 const MODE_LABEL = { play: '◆  Game  ·  collect, dodge, turn', saber: '⚔  Sabers  ·  slice the beat', punch: '✊  Punch  ·  smash the beat', drive: '🔫  Drive-by  ·  fly and shoot', journey: '✦  Journey  ·  just enjoy the visuals', guitar: '🎸  Guitar  ·  hold frets, strum' };
 const MODE_HINT = { guitar: 'Hold the fret colours, then strum  ·  chords need every fret  ·  Clone Hero charts play as written', journey: 'Autopilot flies  ·  steer any time to take over', saber: 'Red left, blue right  ·  avoid the mines  ·  phone: swipe', punch: 'Punch the orbs in your colour  ·  phone: tap', drive: 'Fly through gems or shoot them  ·  shoot spikes to clear them  ·  one shot per trigger pull / click / tap' };
 // ===== UI: one canvas drawn for both the flat overlay and the VR panel; separate small HUD canvas =====
-const UW = 1024, UH = 640;
+let UW = 1024, UH = 640;          // the menu canvas: landscape 1024 x 640, or a portrait 640 x ~1100 on phones held upright (see UI.applyShape)
+const PT_SCREENS = new Set(['home', 'setup', 'settings', 'pause', 'results', 'spectate', 'party', 'rank', 'loading']);
 const C = { bg: 'rgba(9,7,26,0.92)', panel: 'rgba(34,29,74,0.85)', panel2: 'rgba(52,44,108,0.92)', hov: 'rgba(86,74,170,0.96)', cy: '#19e3ff', mg: '#ff3fd0', gd: '#ffd34d', tx: '#eef3ff', dim: '#98a1cc', red: '#ff5470', ok: '#46ffa0' };
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 const GRADE_COL = { S: '#ffd34d', A: '#46ffa0', B: '#19e3ff', C: '#c9a0ff', D: '#ff9a5c', F: '#ff5470' };
@@ -6251,9 +6257,18 @@ const UI = {
   scrollTop: 0, sTop: 0, kbOpen: false, confirmRemove: -1, xr: false, xrOK: false, arOK: false, lastDraw: 0, onAct: null, spin: 0,
 
   init(canvas) { this.canvas = canvas; canvas.width = UW; canvas.height = UH; this.g = canvas.getContext('2d'); },
+  pt: false,
+  applyShape() {                                                        // phones held upright get a tall menu canvas that fills the screen; everything else keeps the wide one
+    if (!this.canvas) return; const up = typeof TOUCH !== 'undefined' && TOUCH && !this.xr && innerHeight > innerWidth * 1.05 && PT_SCREENS.has(this.screen);
+    const nw = up ? 640 : 1024, nh = up ? clamp(Math.round(640 * innerHeight / Math.max(1, innerWidth)), 1000, 1400) : 640;
+    if (up === this.pt && nw === UW && nh === UH) return;
+    this.pt = up; UW = nw; UH = nh; this.canvas.width = UW; this.canvas.height = UH; const s = this.canvas.style;
+    if (up) { s.width = '100vw'; s.height = '100%'; s.aspectRatio = 'auto'; s.inset = '0'; } else { s.width = ''; s.height = ''; s.aspectRatio = ''; s.inset = ''; }
+    this.dirty = true; this.W.length = 0;
+  },
   font(sz, wt) { return (wt || 600) + ' ' + sz + 'px ' + FONT; },
   toast(msg) { this.toastMsg = msg; this.toastT = 3.2; this.dirty = true; },
-  set(screen) { this.screen = screen; this.hover = null; this.dirty = true; this.confirmRemove = -1; },
+  set(screen) { this.screen = screen; this.hover = null; this.dirty = true; this.confirmRemove = -1; this.applyShape(); },
 
   // ----- primitives -----
   rr(x, y, w, h, r) { const g = this.g; g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); },
@@ -6289,7 +6304,11 @@ const UI = {
       case 'diff': S.difficulty = +parts[1]; saveSettings(); break;
       case 'smode': S.mode = parts[1]; applyModeView(); saveSettings(); break;
       case 'sview': S.view = parts[1]; saveSettings(); break;
+      case 'setup_open': this.set('setup'); break;
       case 'sback': this.set('home'); break;
+      case 'setpg': this.setPg = ((this.setPg | 0) + 1) % Math.max(1, Math.ceil(SETTING_ROWS.length / 22)); this.dirty = true; break;
+      case 'setup_up': this.setTop = Math.max(0, (this.setTop | 0) - 3); this.dirty = true; break;
+      case 'setup_dn': this.setTop = (this.setTop | 0) + 3; this.dirty = true; break;
       case 'comfort': this.set('comfort'); break;
       case 'mrs': this.set('mr'); break;
       case 'mrback': this.set('settings'); break;
@@ -6307,7 +6326,7 @@ const UI = {
       case 'spectate': this.set('spectate'); break;
       case 'sp_host': case 'sp_watch': case 'sp_key': case 'sp_stop': case 'sp_back': Spectate.act(id, parts); break;
       case 'sp_party': UI.set('party'); break;
-      case 'pt_host': case 'pt_join': case 'pt_key': case 'pt_start': case 'pt_song': case 'pt_view': case 'pt_coop': case 'pt_driver': case 'pt_leave': case 'pt_back': case 'pt_rank': Party.act(id, parts); break;
+      case 'pt_host': case 'pt_join': case 'pt_key': case 'pt_start': case 'pt_song': case 'pt_view': case 'pt_coop': case 'pt_driver': case 'pt_leave': case 'pt_back': case 'pt_rank': case 'pt_allow': case 'pt_deny': case 'pt_kick': case 'pt_lock': case 'pt_auto': case 'pt_tab': case 'pt_browse': case 'pt_next': case 'pt_lobby': case 'pt_name': Party.act(id, parts); break;
       case 'cal_back': Calib.stop(); this.set('settings'); break;
       case 'share': Share.go(); break;
       case 'cback': this.set('settings'); break;
@@ -6939,6 +6958,218 @@ const Ghosts = {
   }
 };
 
+// ===== MENUS: home, ready-screen, settings, pause and results, laid out for both the wide panel (1024 x 640: flat screens and the VR panel) and a tall portrait canvas (640 x ~1100: phones held upright) =====
+// Every screen computes its positions from UW / UH and UI.pt (portrait). Text and touch targets are bigger in portrait because that canvas is shown at about 60% scale.
+Object.assign(UI, {
+  // ---------- layout helpers ----------
+  frame(title, sub, backId, backLabel) {                                  // panel + title + back button; returns the content rectangle
+    const P = this.pt, g = this.g; this.panelBG(4, 4, UW - 8, UH - 8);
+    const tx = P ? 30 : 36, ts = P ? 42 : 46, gr = g.createLinearGradient(tx, 0, tx + 300, 0); gr.addColorStop(0, C.cy); gr.addColorStop(1, C.mg);
+    this.text(title, tx, P ? 66 : 70, this.font(ts, 800), gr); if (sub) this.text(this.fit(sub, UW - tx - (backId ? (P ? 190 : 230) : 40), this.font(P ? 23 : 21, 500)), tx + 2, P ? 98 : 98, this.font(P ? 23 : 21, 500), C.dim);
+    if (backId) this.button(backId, UW - (P ? 24 + 150 : 188), P ? 24 : 26, P ? 150 : 162, P ? 60 : 50, backLabel || 'Back', { size: P ? 26 : 22 });
+    const m = P ? 24 : 36; return { x: m, y: P ? 122 : 112, w: UW - 2 * m, b: UH - (P ? 24 : 26) };
+  },
+  chip(id, x, y, w, h, label, sub, sel, o) {                               // a button with a big label and a small caption under it
+    o = o || {}; this.button(id, x, y, w, h, '', { sel, r: o.r || 16, dis: o.dis }); const P = this.pt, ls = o.ls || (P ? 28 : 22), ss = o.ss || (P ? 20 : 14);
+    if (sub) { this.text(this.fit(label, w - 16, this.font(ls, 800)), x + w / 2, y + h * 0.46, this.font(ls, 800), sel ? C.cy : C.tx, 'center'); this.text(this.fit(sub, w - 12, this.font(ss, 500)), x + w / 2, y + h * 0.46 + ss + 10, this.font(ss, 500), C.dim, 'center'); }
+    else this.text(this.fit(label, w - 16, this.font(ls, 800)), x + w / 2, y + h / 2 + 1, this.font(ls, 800), sel ? C.cy : C.tx, 'center', 'middle');
+  },
+  label(t, x, y) { this.text(t, x, y, this.font(this.pt ? 22 : 17, 700), C.dim); },
+  evenRow(list, x, y, w, h, gap) {                                         // list of [id, label, opts] spread evenly across w
+    const n = list.length; if (!n) return; const bw = (w - gap * (n - 1)) / n; list.forEach((b, i) => this.button(b[0], x + i * (bw + gap), y, bw, h, b[1], Object.assign({ size: this.pt ? 24 : 20 }, b[2] || {})));
+  },
+  // ---------- the pick-a-mode / view / difficulty blocks (shared by the ready screen and the party lobby); each returns the y below it ----------
+  MODES: [['play', '◆  Game', 'Collect, dodge, turn'], ['saber', '⚔  Sabers', 'Slice the beat'], ['punch', '✊  Punch', 'Smash the beat'], ['drive', '🔫  Drive-by', 'Twin pistols'], ['guitar', '🎸  Guitar', 'Frets + strum'], ['journey', '✦  Journey', 'Just the visuals']],
+  modeBlock(x, y, w, o) {
+    o = o || {}; const S = Settings, P = this.pt, list = this.MODES.filter(m => !(o.noJourney && m[0] === 'journey')), cols = o.cols || (P ? 2 : list.length), rows = Math.ceil(list.length / cols), gap = 8, h = o.h || (P ? 104 : 84), bw = (w - gap * (cols - 1)) / cols;
+    this.label('MODE', x + 2, y); y += 12;
+    list.forEach((m, i) => { const cx = x + (i % cols) * (bw + gap), cy = y + ((i / cols) | 0) * (h + gap); this.chip('smode:' + m[0], cx, cy, bw, h, m[1], o.noSub ? '' : m[2], S.mode === m[0], { ls: o.ls }); });
+    return y + rows * (h + gap);
+  },
+  viewBlock(x, y, w, o) {
+    o = o || {}; const S = Settings, P = this.pt, gap = 8, h = o.h || (P ? 84 : 62), VV = [['chase', 'Chase', 'Behind your ship'], ['cockpit', 'Cockpit', 'Sit in the pilot seat']], bw = (w - gap) / 2;
+    this.label('VIEW', x + 2, y); y += 12; VV.forEach((m, i) => this.chip('sview:' + m[0], x + i * (bw + gap), y, bw, h, m[1], o.noSub ? '' : m[2], S.view === m[0]));
+    return y + h + gap;
+  },
+  diffBlock(x, y, w, o) {
+    o = o || {}; const S = Settings, P = this.pt, cols = o.cols || (P ? 2 : 4), gap = 8, h = o.h || (P ? 76 : 62), bw = (w - gap * (cols - 1)) / cols, rows = Math.ceil(DIFFICULTIES.length / cols);
+    this.label('DIFFICULTY', x + 2, y); y += 12; DIFFICULTIES.forEach((d, i) => this.chip('diff:' + i, x + (i % cols) * (bw + gap), y + ((i / cols) | 0) * (h + gap), bw, h, d.name, '', S.difficulty === i, { ls: o.ls || (P ? 30 : 24) }));
+    return y + rows * (h + gap);
+  },
+
+  // ---------- HOME ----------
+  home() {
+    const g = this.g, L = Library, S = Settings, items = L.items, sel = items[L.selected], P = this.pt, xr = this.xr;
+    this.panelBG(4, 4, UW - 8, UH - 8);
+    const tx = P ? 30 : 36, gr = g.createLinearGradient(tx, 0, tx + 270, 0); gr.addColorStop(0, C.cy); gr.addColorStop(1, C.mg);
+    this.text('DMT SURF', tx, P ? 68 : 70, this.font(P ? 44 : 46, 800), gr); this.text('Ride your music', tx + 2, P ? 100 : 98, this.font(P ? 23 : 21, 500), C.dim);
+    // header buttons
+    const hb = [];
+    if (xr) hb.push(['recenter', 'Recenter', 150, {}]); else if (this.xrOK && this.arOK) { hb.push(['vr', 'ENTER VR', 132, { primary: true, weight: 800 }]); hb.push(['ar', 'MIXED', 100, { weight: 800 }]); } else if (this.xrOK) hb.push(['vr', 'ENTER VR', 170, { primary: true, weight: 800 }]);
+    if (!xr) hb.push(['spectate', Party.on() ? '● Party' : Spectate.st === 'live' ? '● Live' : '👥 Friends', P ? 0 : 150, {}]);
+    hb.push(['settings', 'Settings', P ? 0 : 140, {}]);
+    if (!P) { let x = UW - 24; for (let i = hb.length - 1; i >= 0; i--) { const b = hb[i]; x -= b[2]; this.button(b[0], x, 24, b[2], 52, b[1], Object.assign({ size: 20 }, b[3])); x -= 10; } }
+    else { this.button('settings', UW - 30 - 170, 28, 170, 62, 'Settings', { size: 26 }); const r2 = hb.filter(b => b[0] !== 'settings').map(b => [b[0], b[1], Object.assign({ size: 24 }, b[3])]); this.evenRow(r2, 24, 112, UW - 48, 60, 10); }
+    // song list
+    const y0 = P ? (hb.length > 1 ? 188 : 128) : 112, rh = P ? 88 : 66, gap = 4;
+    const listBot = P ? UH - 452 : 536, rows = Math.max(2, Math.floor((listBot - y0 + gap) / (rh + gap))), x0 = P ? 24 : 28, lw = P ? UW - 48 : 590;
+    if (L.selected < this.scrollTop) this.scrollTop = L.selected; if (L.selected >= this.scrollTop + rows) this.scrollTop = L.selected - rows + 1;
+    this.scrollTop = clamp(this.scrollTop, 0, Math.max(0, items.length - rows));
+    for (let r = 0; r < rows; r++) {
+      const i = this.scrollTop + r, y = y0 + r * (rh + gap); if (i >= items.length) break;
+      const it = items[i], on = i === L.selected, fs = P ? 30 : 25, ss = P ? 22 : 19, bh = rh - (P ? 26 : 24), qw = P ? 78 : 60, sw = P ? 62 : 46;
+      this.button('song:' + i, x0, y, lw, rh, '', { sel: on, r: 14 });
+      const rx = x0 + lw - 10; this.button('q:' + i, rx - qw, y + (rh - bh) / 2, qw, bh, (() => { const qi = Queue.keys.indexOf(it.key); return qi >= 0 ? '#' + (qi + 1) : '＋Q'; })(), { size: P ? 24 : 20, weight: 800, sel: Queue.keys.indexOf(it.key) >= 0, r: 12 });
+      this.button('fav:' + i, rx - qw - 8 - sw, y + (rh - bh) / 2, sw, bh, '', { r: 12 }); this.star(rx - qw - 8 - sw / 2, y + rh / 2, P ? 16 : 13, !!S.favs[it.key]);
+      const nameW = lw - 40 - qw - sw - 24 - (P ? 0 : 56);
+      this.text(this.fit(it.name, nameW, this.font(fs, 700)), x0 + 18, y + (P ? 38 : 30), this.font(fs, 700), on ? '#fff' : C.tx);
+      if (it.status === 'ready') {
+        this.text(this.fit((it.bundled && it.sub ? it.sub + '  ·  ' : '') + Math.round(it.bpm) + ' BPM  ·  ' + fmtTime(it.dur) + (it.bs ? '  ·  Beat Saber map' : it.ch ? '  ·  Clone Hero' : ''), nameW, this.font(ss, 500)), x0 + 18, y + (P ? 70 : 57), this.font(ss, 500), C.dim);
+        const b = L.best(it, S.difficulty); if (b && !P) { this.text(b.grade, x0 + lw - 10 - qw - sw - 24, y + 33, this.font(32, 800), GRADE_COL[b.grade] || C.tx, 'right'); this.text(b.score.toLocaleString(), x0 + lw - 10 - qw - sw - 24, y + 57, this.font(17, 500), C.dim, 'right'); }
+      } else if (it.status === 'scanning') {
+        this.text('Analysing  ' + Math.round(it.progress * 100) + '%', x0 + 18, y + (P ? 70 : 57), this.font(ss, 500), C.cy);
+        const bx = x0 + 18 + (P ? 190 : 150), bw = nameW - (P ? 190 : 150); this.rr(bx, y + (P ? 60 : 48), bw, 8, 4); g.fillStyle = 'rgba(255,255,255,0.12)'; g.fill(); this.rr(bx, y + (P ? 60 : 48), Math.max(8, bw * it.progress), 8, 4); g.fillStyle = C.cy; g.fill();
+      } else if (it.status === 'error') this.text(this.fit(it.error || 'Could not read this file', nameW, this.font(ss, 500)), x0 + 18, y + (P ? 70 : 57), this.font(ss, 500), C.red);
+      else this.text(it.status === 'idle' ? 'Tap to generate  ·  ' + DEMO_VARIANTS[it.demoV || 0].bpm + ' BPM' : 'Waiting to analyse…', x0 + 18, y + (P ? 70 : 57), this.font(ss, 500), C.dim);
+    }
+    if (items.length > rows) {
+      if (!P) { const ah = (rows * (rh + gap) - gap - 8) / 2; this.button('list:up', 622, y0, 42, ah, '▲', { size: 22, dis: this.scrollTop <= 0 }); this.button('list:down', 622, y0 + ah + 8, 42, ah, '▼', { size: 22, dis: this.scrollTop + rows >= items.length }); }
+      else { this.text((this.scrollTop + 1) + '–' + Math.min(items.length, this.scrollTop + rows) + ' of ' + items.length + '  ·  swipe the list', x0 + 4, y0 - 12, this.font(19, 500), C.dim); this.button('list:up', UW - 24 - 150, y0 - 44, 70, 36, '▲', { size: 20, r: 10, dis: this.scrollTop <= 0 }); this.button('list:down', UW - 24 - 74, y0 - 44, 74, 36, '▼', { size: 20, r: 10, dis: this.scrollTop + rows >= items.length }); }
+    }
+    // library actions
+    const ay = P ? UH - 214 - 0 : 548;
+    if (!P) {
+      if (xr) { this.button('search', 28, ay, 440, 54, '⌕  Search songs online', { size: 23 }); this.button('exitvr', 478, ay, 150, 54, '⏏  Exit VR', { size: 21 }); this.text('Stick scrolls the list  ·  add your own files on the flat page', 330, ay + 78, this.font(17, 500), C.dim, 'center'); }
+      else { const nf = Object.keys(S.favs).filter(k => /^bs/.test(k)).length; this.evenRow([['add', '＋ Add file', { size: 18 }], ['search', '⌕ Search', { size: 18 }], ['explist', 'Save favs' + (nf ? ' (' + nf + ')' : ''), { size: 18, primary: nf > 0 }], ['implist', 'Load favs', { size: 18 }]], 28, ay, 590, 54, 8); this.text('Star a song to favourite it  ·  ＋Q lines up a set to play back to back', 28 + 295, ay + 80, this.font(16, 500), C.dim, 'center'); }
+    }
+    // right card (landscape) / bottom stack (portrait)
+    const cx = P ? 24 : 676, cw = P ? UW - 48 : 324, cy0 = P ? UH - 452 + 8 : 108;
+    if (!P) { this.rr(cx - 6, 106, cw + 12, 510, 22); g.fillStyle = 'rgba(255,255,255,0.04)'; g.fill(); }
+    let y = P ? cy0 : 112;
+    if (sel) {
+      this.text(this.fit(sel.name, cw, this.font(P ? 32 : 27, 800)), cx + 4, y + (P ? 28 : 28), this.font(P ? 32 : 27, 800), C.tx);
+      const best = L.best(sel, S.difficulty);
+      this.text(sel.status === 'ready' ? Math.round(sel.bpm) + ' BPM  ·  ' + fmtTime(sel.dur) + (best ? '   ·   BEST ' + best.score.toLocaleString() + '  ' + best.grade : '   ·   no score yet') : sel.status === 'scanning' ? 'Analysing the song…' : 'Not ready', cx + 4, y + (P ? 62 : 58), this.font(P ? 23 : 19, 600), best ? C.gd : C.dim);
+    }
+    y += P ? 82 : 80;
+    if (!P) {
+      if (sel && sel.bs) { this.button('csrc', cx, y, cw, 38, CSRC_LABEL[S.chartSrc] || CSRC_LABEL.map, { size: 15, r: 12 }); y += 46; }
+      this.label('TRACK SPEED', cx + 4, y + 8); y += 16; this.button('spd:-', cx, y, 62, 48, '−', { size: 30 }); this.button('spd:+', cx + cw - 62, y, 62, 48, '+', { size: 30 }); this.text(S.speed.toFixed(1) + 'x', cx + cw / 2, y + 33, this.font(28, 800), C.tx, 'center'); y += 62;
+      this.label('STEERING (VR)', cx + 4, y + 6); y += 14; this.button('steer', cx, y, cw, 42, { grip: 'Grip  ·  squeeze to steer', point: 'Point  ·  aim with controller', stick: 'Stick  ·  thumbstick', lean: 'Lean  ·  move your head' }[S.control], { size: 17 }); y += 54;
+      { const si = Profile.skinIdx(); this.button('veh', cx, y, (cw - 8) / 2, 40, VEHICLES[clamp(S.vehicle | 0, 0, 3)].n, { size: 17, r: 12 }); this.button('skin', cx + (cw + 8) / 2, y, (cw - 8) / 2, 40, SKINS[si].n, { size: 17, r: 12 }); this.text('CRAFT', cx + 4, y - 2, this.font(11, 700), C.dim); this.text('PAINT · LV ' + Profile.level, cx + (cw + 8) / 2 + 4, y - 2, this.font(11, 700), C.dim); y += 52; }
+      if (Queue.keys.length) { const nq = Queue.items().length; this.button('qplay', cx, y, cw - 80, 46, '▶  PLAY SET  ·  ' + nq, { size: 20, weight: 800, dis: !nq }); this.button('qclear', cx + cw - 72, y, 72, 46, 'Clear', { size: 17 }); y += 54; }
+      this.button('setup_open', cx, y, cw, 46, (MODE_LABEL[S.mode] || '').split('  ·')[0] + '  ·  ' + DIFFICULTIES[S.difficulty].name + '   ▸', { size: 18, r: 14 });
+      const py = 540; this.button('play', cx, py, cw, 62, sel && sel.status === 'scanning' ? 'ANALYSING…' : '▶   PLAY', { primary: true, size: 32, weight: 800, dis: !sel || sel.status !== 'ready' });
+      if (sel && !sel.demo && !sel.bundled) { const sure = this.confirmRemove === L.selected; this.text(sure ? 'Select again to remove this song' : 'Remove this song', cx + 4, 626, this.font(15, 600), sure ? C.red : C.dim); this.W.push({ id: 'remove', x: cx, y: 610, w: cw, h: 24, dis: false }); }
+    } else {
+      // portrait: speed, mode summary, library actions, play
+      this.button('spd:-', cx, y - 10, 70, 60, '−', { size: 32 }); this.button('spd:+', cx + 70 + 150, y - 10, 70, 60, '+', { size: 32 }); this.text('SPEED ' + S.speed.toFixed(1) + 'x', cx + 70 + 75, y + 30, this.font(24, 800), C.tx, 'center');
+      this.button('setup_open', cx + 306, y - 10, cw - 306, 60, (MODE_LABEL[S.mode] || '').split('  ·')[0].replace(/^\S+\s+/, '') + ' ▸', { size: 22, r: 14 });
+      y += 66; const nf = Object.keys(S.favs).filter(k => /^bs/.test(k)).length;
+      this.evenRow([['add', '＋ Add', { size: 22 }], ['search', '⌕ Search', { size: 22 }], ['explist', '★ Save' + (nf ? ' ' + nf : ''), { size: 22, primary: nf > 0 }], ['implist', '★ Load', { size: 22 }]], cx, y, cw, 62, 8);
+      if (Queue.keys.length) { const nq = Queue.items().length; y += 70; this.button('qplay', cx, y, cw - 110, 56, '▶ PLAY SET · ' + nq, { size: 24, weight: 800, dis: !nq }); this.button('qclear', cx + cw - 102, y, 102, 56, 'Clear', { size: 22 }); }
+      this.button('play', cx, UH - 24 - 96, cw, 96, sel && sel.status === 'scanning' ? 'ANALYSING…' : '▶   PLAY', { primary: true, size: 38, weight: 800, dis: !sel || sel.status !== 'ready' });
+    }
+  },
+
+  // ---------- READY? (mode, view, difficulty) ----------
+  setup() {
+    const g = this.g, S = Settings, L = Library, sel = L.items[L.selected], P = this.pt;
+    const R = this.frame('Ready?', sel ? sel.name : '', 'sback');
+    let y = R.y + (P ? 8 : 8);
+    y = this.modeBlock(R.x, y + 14, R.w, {}) + (P ? 10 : 4);
+    const hm = S.mode === 'saber' || S.mode === 'punch';
+    if (!hm) y = this.viewBlock(R.x, y + 14, R.w, {}) + (P ? 10 : 4);
+    else { this.text(S.mode === 'saber' ? 'Red blade in your left hand, blue in your right  ·  you stand at the centre of the beat' : 'Red fist left, blue fist right  ·  hit the orbs in your colour', UW / 2, y + (P ? 44 : 30), this.font(P ? 24 : 20, 600), C.dim, 'center'); y += P ? 72 : 44; }
+    y = this.diffBlock(R.x, y + 14, R.w, {}) + 4;
+    // extras row
+    const ey = y + 4, ew = P ? R.w : 330;
+    if (S.mode === 'guitar') { this.button('gtr_open', R.x, ey, P ? R.w : 330, P ? 60 : 40, '🎸 Guitar: ' + (Gtr.padId ? 'connected' : 'set up / test') + '  ▸', { size: P ? 22 : 17, r: 12 }); if (sel && sel.ch) { const pk = CH.pick(sel.ch, S.difficulty, S.chPart); this.button('chpart', P ? R.x : R.x + 340, P ? ey + 68 : ey, P ? R.w : 330, P ? 60 : 40, 'Part: ' + (CH_PART_NAMES[pk ? pk.part : 'guitar'] || 'Lead guitar') + '  ▸', { size: P ? 22 : 17, r: 12 }); y = ey + (P ? 136 : 48); } else y = ey + (P ? 68 : 48); }
+    else if (sel && sel.bs) { this.button('csrc', R.x, ey, P ? R.w : 400, P ? 60 : 40, CSRC_LABEL[S.chartSrc] || CSRC_LABEL.map, { size: P ? 20 : 16, r: 12 }); y = ey + (P ? 68 : 48); }
+    else y = ey;
+    if (S.mode === 'play' || S.mode === 'journey') { const gx = (S.mode === 'guitar' || (sel && sel.bs)) ? (P ? R.x : R.x + 410) : R.x, gy = (P && (sel && sel.bs)) ? ey + 68 : ey; this.button('ghosts', gx, gy, P ? R.w : 300, P ? 60 : 40, '👻 Ghosts  ·  ' + (sel ? Ghosts.list('dmtsurf.ghost.' + sel.key + ':' + S.difficulty).length : 0) + ' saved  ▸', { size: P ? 22 : 17, r: 12 }); y = Math.max(y, gy + (P ? 68 : 48)); }
+    const best = sel && L.best(sel, S.difficulty), hy = Math.min(y + (P ? 40 : 30), UH - (P ? 188 : 128));
+    this.text(this.fit(S.mode === 'journey' ? 'Autopilot flies  ·  steer any time to take over' : MODE_HINT[S.mode] || (best ? 'Best  ' + best.score.toLocaleString() + '   ' + best.grade : 'No score yet on ' + DIFFICULTIES[S.difficulty].name), UW - 60, this.font(P ? 23 : 19, 600)), UW / 2, hy, this.font(P ? 23 : 19, 600), best && S.mode !== 'journey' ? C.gd : C.cy, 'center');
+    const lab = Queue.arm ? '▶   START SET  ·  ' + Queue.items().length + ' songs' : S.mode === 'journey' ? '✦   BEGIN JOURNEY' : S.mode === 'saber' ? '⚔   SLICE' : S.mode === 'punch' ? '✊   PUNCH' : S.mode === 'drive' ? '🔫   DRIVE' : S.mode === 'guitar' ? '🎸   ROCK' : '▶   START';
+    if (P) this.button('play', R.x, UH - 24 - 100, R.w, 100, lab, { primary: true, size: 38, weight: 800, dis: !sel || sel.status !== 'ready' });
+    else this.button('play', 262, UH - 26 - 76, 500, 76, lab, { primary: true, size: 34, weight: 800, dis: !sel || sel.status !== 'ready' });
+  },
+
+  // ---------- SETTINGS (paged on the wide panel, one scrolling column in portrait) ----------
+  settingRow(row, x, y, w, h) {
+    const g = this.g, S = Settings, P = this.pt; this.rr(x, y, w, h, 14); g.fillStyle = 'rgba(255,255,255,0.05)'; g.fill();
+    let v; if (row.bool) v = S[row.k] ? 'On' : 'Off'; else if (row.opts) v = row.names[Math.max(0, row.opts.indexOf(S[row.k]))]; else v = row.fmt(S[row.k]);
+    const bw = P ? 66 : 42, vw = P ? 188 : 120, cx = x + w - 10 - bw * 2 - vw, fs = P ? 26 : 20, lw = cx - x - 24;
+    this.text(this.fit(row.label, lw, this.font(fs, 600)), x + 16, y + h / 2 + (P ? 9 : 7), this.font(fs, 600), C.tx);
+    this.button('set:' + row.k + ':-1', cx, y + 4, bw, h - 8, '◀', { size: P ? 22 : 16, r: 10 }); this.button('set:' + row.k + ':1', x + w - 10 - bw, y + 4, bw, h - 8, '▶', { size: P ? 22 : 16, r: 10 });
+    this.text(this.fit(v, vw - 6, this.font(P ? 24 : 20, 800)), cx + bw + vw / 2, y + h / 2 + (P ? 9 : 7), this.font(P ? 24 : 20, 800), row.bool ? (S[row.k] ? C.ok : C.dim) : C.cy, 'center');
+  },
+  settings() {
+    const P = this.pt, rows = SETTING_ROWS, R = this.frame('Settings', '', P ? null : null);
+    const bot = P ? 3 : 1, by = UH - (P ? 24 + 140 : 26 + 50); let top = R.y - 8;
+    if (!P) {
+      const per = 11, pages = Math.ceil(rows.length / (per * 2)); this.setPg = clamp(this.setPg | 0, 0, pages - 1); const cw = (R.w - 20) / 2, rh = 38, st = 42, y0 = R.y - 4;
+      for (let i = 0; i < per * 2; i++) { const row = rows[this.setPg * per * 2 + i]; if (!row) break; this.settingRow(row, R.x + (i < per ? 0 : cw + 20), y0 + (i % per) * st, cw, rh); }
+      if (pages > 1) this.button('setpg', UW - 36 - 190, 26, 190, 46, 'Page ' + (this.setPg + 1) + ' / ' + pages + '  ›', { size: 19 });
+      this.text('Hits feel early? Raise the audio offset.  Wired headphones = lowest latency.', R.x, by - 12, this.font(16, 500), C.dim);
+      this.evenRow([['comfort', 'Comfort', {}], ['mrs', 'Passthrough', {}], ['calib', 'Calibrate audio', {}], ['back', 'Done', { primary: true, weight: 800, size: 26 }]], R.x, by, R.w, 50, 10);
+    } else {
+      const rh = 76, st = 82, area = by - 14 - top - 14, per = Math.max(3, Math.floor(area / st)); this.setTop = clamp(this.setTop | 0, 0, Math.max(0, rows.length - per));
+      for (let i = 0; i < per; i++) { const row = rows[this.setTop + i]; if (!row) break; this.settingRow(row, R.x, top + 14 + i * st, R.w, rh); }
+      this.text((this.setTop + 1) + '–' + Math.min(rows.length, this.setTop + per) + ' of ' + rows.length + '  ·  swipe to scroll', R.x + 4, top + 6, this.font(19, 500), C.dim);
+      this.button('setup_up', UW - 24 - 150, 28, 70, 56, '▲', { size: 22, dis: this.setTop <= 0 }); this.button('setup_dn', UW - 24 - 74, 28, 74, 56, '▼', { size: 22, dis: this.setTop + per >= rows.length });
+      this.evenRow([['comfort', 'Comfort', { size: 22 }], ['mrs', 'Passthrough', { size: 22 }], ['calib', 'Audio sync', { size: 22 }]], R.x, by, R.w, 60, 8);
+      this.button('back', R.x, by + 70, R.w, 70, 'Done', { primary: true, size: 32, weight: 800 });
+    }
+  },
+
+  // ---------- PAUSE ----------
+  pause() {
+    const P = this.pt, mrOn = this.xr && MR.on, w = P ? UW - 48 : 460, x = (UW - w) / 2, y = P ? 40 : 20, h = P ? UH - 80 : (this.xr ? 600 : 568); this.panelBG(x, y, w, h);
+    this.text('PAUSED', UW / 2, y + (P ? 80 : 66), this.font(P ? 52 : 42, 800), C.tx, 'center');
+    const items = [['resume', '▶  Resume', { primary: true, size: P ? 36 : 28, weight: 800 }], ['restart', '↻  Restart', {}], ['gems', 'Gem sound:  ' + (Settings.collectSound ? 'ON' : 'OFF'), { sel: !Settings.collectSound }], ['hud', 'Info:  ' + ({ full: 'FULL', min: 'MINIMAL', off: 'OFF' }[Settings.hud] || 'FULL'), {}], ['view', 'View:  ' + (Settings.view === 'cockpit' ? 'COCKPIT' : 'CHASE'), {}], ['settings', 'Settings', {}]];
+    if (mrOn) { items.push(['mrq', 'World:  ' + (MR.quick ? 'FULL VR' : 'PASSTHROUGH'), { sel: MR.quick }]); items.push(['mrplace', MR.place ? 'Move the track' : 'Place the track', {}]); }
+    if (this.xr) { items.push(['recenter', 'Recenter view', {}]); items.push(['exitvr', '⏏  Exit VR', {}]); }
+    items.push(['quit', 'Quit to menu', {}]);
+    const top = y + (P ? 120 : (mrOn ? 76 : 84)), avail = y + h - 24 - top, gap = P ? 14 : mrOn ? 5 : 7, n = items.length, bh = clamp(Math.floor((avail - gap * (n - 1)) / n), 36, P ? 92 : 58);
+    items.forEach((b, i) => this.button(b[0], x + 36, top + i * (bh + gap), w - 72, bh, b[1], Object.assign({ size: P ? 30 : (bh < 44 ? 22 : 25) }, b[2])));
+  },
+
+  // ---------- RESULTS ----------
+  results() {
+    const g = this.g, r = Game.result, P = this.pt; if (!r) return; this.panelBG(4, 4, UW - 8, UH - 8);
+    const bx = P ? 24 : 140, bw = P ? UW - 48 : 340, by = UH - (P ? 24 + 92 : 26 + 70), bh = P ? 92 : 70;
+    if (Game.journey) {
+      this.text('JOURNEY COMPLETE', UW / 2, P ? 200 : 150, this.font(P ? 52 : 44, 800), C.cy, 'center');
+      this.text(this.fit(Game.track ? Game.track.name || '' : '', UW - 80, this.font(24, 500)), UW / 2, P ? 252 : 196, this.font(24, 500), C.dim, 'center');
+      this.text(fmtTime(Game.a ? Game.a.dur : 0) + ' travelled', UW / 2, P ? 380 : 290, this.font(P ? 64 : 60, 800), C.tx, 'center');
+      if (r.reward) this.text('+' + r.reward.xp + ' XP' + (r.reward.lvUp ? '   ·   LEVEL ' + r.reward.lvUp + '!' : '   ·   LV ' + Profile.level), UW / 2, P ? 470 : 370, this.font(28, 800), C.gd, 'center');
+      if (P) { this.button('retry', bx, by - bh - 14, bw, bh, '↻  Again', { primary: true, size: 32, weight: 800 }); this.button('menu', bx, by, bw, bh, 'Song menu', { size: 30 }); }
+      else { this.button('retry', 140, UH - 96 - 24, 340, 70, '↻  Again', { primary: true, size: 28, weight: 800 }); this.button('menu', 544, UH - 96 - 24, 340, 70, 'Song menu', { size: 28 }); } return;
+    }
+    const gc = GRADE_COL[r.grade] || C.tx, head = Game.failed ? (Game.saber ? 'ENERGY DEPLETED' : 'THE SHOW IS OVER') : Queue.run ? 'SET COMPLETE' : 'TRACK COMPLETE';
+    this.text(head, UW / 2, P ? 72 : 66, this.font(P ? 38 : 34, 800), Game.failed ? C.red : C.cy, 'center');
+    this.text(this.fit(Queue.run ? Queue.items().map(x => x.name).join('  ·  ') : (Game.track ? Game.track.name || '' : ''), UW - 80, this.font(P ? 24 : 22, 500)), UW / 2, P ? 108 : 100, this.font(P ? 24 : 22, 500), C.dim, 'center');
+    if (!this.xr && !P) this.button('share', UW - 154, 22, 130, 44, '⇪ Share', { size: 20 });
+    if (Party.on()) this.button('pt_rank', P ? 24 : 24, P ? 130 : 22, P ? UW - 48 : 160, P ? 64 : 44, '🏁  Party rankings', { size: P ? 26 : 19, primary: P });
+    const gy = P ? (Party.on() ? 410 : 360) : 360;
+    g.save(); g.shadowColor = gc; g.shadowBlur = 40; this.text(r.grade, P ? 150 : 230, gy, this.font(P ? 200 : 240, 900), gc, 'center'); g.restore();
+    const sx = P ? 430 : 640; this.text('SCORE', sx, P ? gy - 150 : 150, this.font(P ? 24 : 20, 700), C.dim, 'center'); this.text(r.score.toLocaleString(), sx, P ? gy - 82 : 214, this.font(P ? 62 : 64, 800), C.tx, 'center');
+    if (Game.newBest) this.text('★ NEW BEST ★', sx, P ? gy - 36 : 256, this.font(P ? 28 : 30, 800), C.gd, 'center');
+    const st = [['Accuracy', Math.round(r.acc * 100) + '%'], ['Max combo', r.maxCombo], ['Notes hit', r.hits + ' / ' + (r.hits + r.misses)], ['Perfect', r.perfects], ...(Game.saber ? [['Bad cuts', r.struck], ['Missed', r.misses], ['Rank', r.grade]] : [['Meter at the end', Math.round(Game.energy) + '%'], ['Streaks', r.streaks + ' / ' + r.holdsTotal], ['Corners taken', r.cornersOK + ' / ' + r.cornersAll], ['Hits taken', r.hurts]])];
+    { const mc = r.maxCombo | 0, tn = mc >= 100 ? 4 : mc >= 50 ? 3 : mc >= 25 ? 2 : mc >= 10 ? 1 : 0; if (tn) st[1] = ['Max combo', mc + '  ·  ' + STREAK_NAMES[tn]]; }
+    if (Game.phrases && Game.phrases.length) st[3] = ['Star phrases', (Game.phraseGot | 0) + ' / ' + Game.phrases.length];
+    if (Game.drive && Game.bossTotal) st[6] = ['Bosses beaten', (Game.bossKills | 0) + ' / ' + Game.bossTotal];
+    if (Game.drive) { st[0] = ['Shot accuracy', Math.round((r.shotAcc || 0) * 100) + '%']; st[2] = ['On-beat shots', (r.beatShots | 0) + '  ·  best streak ' + (r.bestRhythm | 0)]; st[3] = ['Gems shot', r.shotGems]; st[5] = ['Hazards + orbs shot', r.shotObs + ' + ' + (r.orbsShot | 0)]; }
+    const gx0 = P ? 30 : 440, gw = P ? (UW - 60) / 2 : 280, gy0 = P ? gy + 56 : 296, rowH = P ? 86 : 56;
+    st.slice(0, 8).forEach((s, i) => { const col = i % 2, row = (i / 2) | 0, x = gx0 + col * gw, y = gy0 + row * rowH; this.text(s[0].toUpperCase(), x, y, this.font(P ? 20 : 16, 700), C.dim); this.text(this.fit(String(s[1]), gw - 14, this.font(P ? 30 : 27, 800)), x, y + (P ? 38 : 31), this.font(P ? 30 : 27, 800), C.tx); });
+    { const rw = r.reward; if (rw) this.text(this.fit('+' + rw.xp + ' XP' + (rw.lvUp ? '   ·   LEVEL ' + rw.lvUp + '!' : '   ·   LV ' + Profile.level) + (rw.ach.length ? '   ·   ' + rw.ach[0] : ''), UW - 40, this.font(P ? 24 : 22, 800)), UW / 2, by - (P ? 22 : 14), this.font(P ? 24 : 22, 800), rw.lvUp ? C.gd : C.cy, 'center'); }
+    if (Queue.run) { if (!P) this.text(Queue.items().length + '-SONG SET', 230, 428, this.font(22, 800), C.gd, 'center'); }
+    if (P) { this.button(Queue.run ? 'qagain' : 'retry', bx, by - bh - 12, bw, bh, Queue.run ? '↻  Run the set again' : '↻  Play again', { primary: true, size: 32, weight: 800 }); this.button('menu', bx, by, bw, bh, 'Song menu', { size: 30 }); }
+    else { this.button(Queue.run ? 'qagain' : 'retry', 140, by, 340, 70, Queue.run ? '↻  Run the set again' : '↻  Play again', { primary: true, size: Queue.run ? 26 : 28, weight: 800 }); this.button('menu', 544, by, 340, 70, 'Song menu', { size: 28 }); }
+  }
+});
+
 // ===== MIXED REALITY: passthrough on Quest 3 (and 2) =====
 // The game runs in an immersive-ar session. The sky, floor and fog become see-through veils (shader work lives in 07_render.js), and this module adds the room layer:
 // beat-reactive room dimming and light, real depth (hides the game behind furniture and hands, glows room edges, projects rings and grids onto real walls),
@@ -7243,101 +7474,173 @@ const MR = {
 
 // ===== PARTY: up to eight players ride the same song at once, each on their own device (headset, phone, screen), same game mode =====
 // Everyone plays their own copy of the game, so nobody feels lag. Only a 10 Hz stream (lane, height, score, combo, how far into the song you are) is shared.
-// Topology: the host holds one WebRTC data channel to each guest and relays the table to all of them. A six digit code is swapped through the same tiny public
-// relay as Spectate, only to set the connections up. Rivals show as ghost ships on YOUR track (default) or on small side tracks of their own.
+// Topology: the host holds one WebRTC data channel to each guest and relays the table to all of them. An eight digit code is swapped through the same tiny public
+// relay as Spectate, only to set the connections up. The host approves every player, and every message from a peer is validated and clamped before it is used.
 const PARTY_MAX = 8, PARTY_COL = ['#19e3ff', '#ff4fd8', '#ffd23c', '#3dff8a', '#ff7a3c', '#a58bff', '#ffffff', '#6aa8ff'];
+const PARTY_MODES = ['play', 'saber', 'punch', 'drive', 'guitar'], AUDIO_MIME = ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/flac', 'audio/webm', 'audio/aac', 'application/ogg'];
+const PN = (v, lo, hi, d) => { v = +v; return isFinite(v) ? (v < lo ? lo : v > hi ? hi : v) : d; };
+const cleanName = (s, d) => { s = String(s == null ? '' : s).replace(/[^\p{L}\p{N} ._'\-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 14); return s || d || 'Player'; };
+const cleanStr = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f<>]/g, '').slice(0, n);
+function safeRelay() {                                                   // only the public ntfy relay, or a relay on this very machine (used by the tests); any other ?relay= is ignored
+  try { const r = new URLSearchParams(location.search).get('relay'); if (r) { const u = new URL(r); if (u.origin === 'https://ntfy.sh' || /^(localhost|127\.0\.0\.1)$/.test(u.hostname)) return u.origin; } } catch (e) {}
+  return 'https://ntfy.sh';
+}
+function sniffAudio(u8) {                                                // the first bytes of a received song must look like audio, not a script or an archive
+  if (u8.length < 12) return false; const a = (i) => u8[i], str = (o, n) => String.fromCharCode.apply(null, u8.slice(o, o + n));
+  return str(0, 3) === 'ID3' || (a(0) === 0xFF && (a(1) & 0xE0) === 0xE0) || str(0, 4) === 'OggS' || str(0, 4) === 'RIFF' || str(0, 4) === 'fLaC' || str(4, 4) === 'ftyp' || (a(0) === 0x1A && a(1) === 0x45 && a(2) === 0xDF && a(3) === 0xA3);
+}
+const STATE_SPEC = { t: [-30, 3600], l: [-600, 600], a: [-200, 2000], sc: [0, 1e9], cb: [0, 1e6], mu: [0, 64], en: [0, 100], od: [0, 1], bh: [-1, 1], h: [0, 1e6], m: [0, 1e6], f: [0, 1], fl: [0, 1], ac: [0, 100] };
+function cleanState(m) { const o = {}; for (const k in STATE_SPEC) if (m[k] !== undefined) { const r = STATE_SPEC[k]; o[k] = PN(m[k], r[0], r[1], 0); } return o; }
 const Party = {
-  relay: (() => { try { return new URLSearchParams(location.search).get('relay') || 'https://ntfy.sh'; } catch (e) { return 'https://ntfy.sh'; } })(),
+  relay: safeRelay(),
   ice: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }],
-  role: null, st: 'idle', code: '', input: '', msg: '', gid: '', pid: 0, sess: 0, es: [], peers: new Map(), pc: null, dc: null,
+  prep: null, syncMsg: '', sync: null, xin: null, ask: '', role: null, st: 'idle', code: '', input: '', msg: '', gid: '', pid: 0, sess: 0, es: [], peers: new Map(), pc: null, dc: null,
   names: {}, tbl: {}, round: false, coop: false, drv: 0, hist: [], tx: 0, sendT: 0, miss: '', me: { fin: false }, ghostAt: {}, mk: null,
+  pending: [], blocked: new Set(), auto: false, locked: false, openUntil: 0, cfg: null, cfgSig: '', tab: 'room', myRank: 0,
   on() { return this.st === 'live' || this.round; },
-  digits() { let s = ''; for (let i = 0; i < 6; i++) s += (Math.random() * 10) | 0; return s; },
+  digits() { let s = ''; try { const a = new Uint32Array(8); crypto.getRandomValues(a); for (const v of a) s += v % 10; } catch (e) { for (let i = 0; i < 8; i++) s += (Math.random() * 10) | 0; } return s; },
   say(m, st) { this.msg = m; if (st) this.st = st; UI.dirty = true; },
   topic(s) { return 'dmtparty' + this.code + s; },
-  sub(s, cb) { const id = this.sess; const es = new EventSource(this.relay + '/' + this.topic(s) + '/sse?since=10m'); es.onmessage = (ev) => { if (id !== this.sess) return; try { const j = JSON.parse(ev.data); if (j.event === 'message') cb(j.message); } catch (e) {} }; es.onerror = () => {}; this.es.push(es); return es; },
+  sub(s, cb) {
+    const id = this.sess; let errs = 0; const es = new EventSource(this.relay + '/' + this.topic(s) + '/sse?since=10m');
+    es.onopen = () => { errs = 0; };
+    es.onmessage = (ev) => { errs = 0; if (id !== this.sess || typeof ev.data !== 'string' || ev.data.length > 30000) return; try { const j = JSON.parse(ev.data); if (j.event === 'message' && typeof j.message === 'string' && j.message.length < 24000) cb(j.message); } catch (e) {} };
+    es.onerror = () => { if (id !== this.sess) return; if (++errs > 8) { try { es.close(); } catch (x) {} if (this.st !== 'live') this.say('Lost contact with the relay. Check your connection and try again.', 'error'); } };
+    this.es.push(es); return es;
+  },
   post(s, o) { return fetch(this.relay + '/' + this.topic(s), { method: 'POST', body: JSON.stringify(o) }); },
   close() {
     this.sess++; for (const e of this.es) try { e.close(); } catch (x) {} this.es = [];
     for (const p of this.peers.values()) { try { p.dc && p.dc.close(); } catch (x) {} try { p.pc && p.pc.close(); } catch (x) {} } this.peers.clear();
     try { this.dc && this.dc.close(); } catch (x) {} try { this.pc && this.pc.close(); } catch (x) {} this.pc = this.dc = null;
-    this.role = null; this.st = 'idle'; this.msg = ''; this.code = ''; this.input = ''; this.names = {}; this.tbl = {}; this.round = false; this.miss = ''; this.pid = 0;
+    this.prep = null; this.sync = null; this.xin = null; this.ask = ''; this.syncMsg = ''; this.role = null; this.st = 'idle'; this.msg = ''; this.code = ''; this.input = ''; this.names = {}; this.tbl = {}; this.round = false; this.miss = ''; this.pid = 0;
+    this.pending = []; this.blocked = new Set(); this.locked = false; this.cfg = null; this.cfgSig = ''; this.tab = 'room'; this.coop = false; Game.gunner = false;
   },
   gathered(pc) { return new Promise((res) => { if (pc.iceGatheringState === 'complete') return res(); const t = setTimeout(res, 4500); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }); }); },
-  myName() { return (Settings.name || '').trim().slice(0, 14) || (this.role === 'host' ? 'Host' : 'Player'); },
+  randName() { const A = ['Swift', 'Neon', 'Cosmic', 'Turbo', 'Lunar', 'Vivid', 'Hyper', 'Astro', 'Pixel', 'Sonic'], B = ['Comet', 'Falcon', 'Ghost', 'Rider', 'Surfer', 'Pilot', 'Wave', 'Fox', 'Nova', 'Drift']; return A[(Math.random() * A.length) | 0] + B[(Math.random() * B.length) | 0]; },
+  setName() { let n = null; if (!UI.xr) { try { n = prompt('Your player name (shown to friends in Party)', Settings.name || this.randName()); } catch (e) { n = null; } if (n === null) return; } else n = this.randName(); Settings.name = cleanName(n, this.randName()); saveSettings(); if (this.role === 'guest') this.send({ k: 'hi', n: this.myName() }); if (this.role === 'host') { this.names[0] = this.myName(); this.sendRoster(); } UI.dirty = true; },
+  myName() { if (!Settings.name) { Settings.name = this.randName(); saveSettings(); } return cleanName(Settings.name, 'Player'); },
+  validG(g) { return typeof g === 'string' && /^[a-z0-9]{6,12}$/.test(g); },
+  validSdp(o, type) { return o && typeof o.sdp === 'string' && o.sdp.length < 20000 && o.type === type; },
   // ---------- host ----------
   host() {
-    this.close(); this.role = 'host'; this.code = this.digits(); this.pid = 0; this.names = { 0: this.myName() }; this.st = 'live'; this.say('Room ' + this.code + ': friends choose Friends → Party → Join and type it in', 'live'); const id = this.sess;
-    this.sub('j', async (txt) => {
-      let j; try { j = JSON.parse(txt); } catch (e) { return; } if (!j || !j.g || this.peers.has(j.g) || id !== this.sess) return;
-      if (this.peers.size >= PARTY_MAX - 1) return;
-      let used = new Set([0]); for (const p of this.peers.values()) used.add(p.pid); let pid = 1; while (used.has(pid)) pid++;
-      const pc = new RTCPeerConnection({ iceServers: this.ice }), dc = pc.createDataChannel('party', { ordered: true }), P = { pc, dc, pid, g: j.g, name: (j.n || 'Player').slice(0, 14), open: false }; this.peers.set(j.g, P);
-      dc.onopen = () => { if (id !== this.sess) return; P.open = true; this.names[pid] = P.name; this.sendRoster(); this.say(this.count() + ' in the room', 'live'); if (this.round && Game.state === 'playing') this.sendTo(P, { k: 'late' }); };
-      dc.onclose = () => { if (id !== this.sess) return; this.peers.delete(j.g); delete this.names[pid]; delete this.tbl[pid]; this.sendRoster(); this.say(this.count() + ' in the room', 'live'); };
-      dc.onmessage = (e) => { if (id === this.sess) this.hostRecv(P, e.data); };
-      pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed') { this.peers.delete(j.g); delete this.names[pid]; this.sendRoster(); } };
-      try { await pc.setLocalDescription(await pc.createOffer()); await this.gathered(pc); if (id !== this.sess) return; await this.post('o', { g: j.g, type: pc.localDescription.type, sdp: pc.localDescription.sdp }); } catch (e) { this.peers.delete(j.g); }
+    this.close(); this.role = 'host'; this.code = this.digits(); this.pid = 0; this.names = { 0: this.myName() }; this.st = 'live'; this.openUntil = performance.now() + 20 * 60000; this.say('Room ' + this.code.slice(0, 4) + ' ' + this.code.slice(4) + ' is open: friends choose Friends → Party → Join', 'live'); const id = this.sess;
+    this.sub('j', (txt) => {
+      let j; try { j = JSON.parse(txt); } catch (e) { return; } if (!j || id !== this.sess || !this.validG(j.g) || this.peers.has(j.g) || this.pending.some(q => q.g === j.g) || this.blocked.has(j.g)) return;
+      const reply = (o) => this.post('o', Object.assign({ g: j.g }, o)).catch(() => {});
+      if (this.locked) { reply({ deny: 'The room is locked' }); return; }
+      if (this.peers.size + this.pending.length >= PARTY_MAX - 1 + 3 || this.peers.size >= PARTY_MAX - 1) { reply({ deny: 'The room is full' }); return; }
+      const n = cleanName(j.n, 'Player');
+      if (this.auto) { this.accept(j.g, n); return; }
+      this.pending.push({ g: j.g, n, t: performance.now() }); reply({ wait: 1 }); UI.toast(n + ' wants to join'); UI.dirty = true;
     });
-    this.sub('a', async (txt) => { let a; try { a = JSON.parse(txt); } catch (e) { return; } const P = a && this.peers.get(a.g); if (P && a.sdp && P.pc.signalingState === 'have-local-offer') { try { await P.pc.setRemoteDescription({ type: a.type, sdp: a.sdp }); } catch (e) {} } });
+    this.sub('a', async (txt) => { let a; try { a = JSON.parse(txt); } catch (e) { return; } const P = a && this.validG(a.g) && this.peers.get(a.g); if (P && this.validSdp(a, 'answer') && P.pc.signalingState === 'have-local-offer') { try { await P.pc.setRemoteDescription({ type: 'answer', sdp: a.sdp }); } catch (e) {} } });
   },
+  accept(g, name) {                                                       // host: let a player in (they get the WebRTC offer now, not before)
+    if (this.role !== 'host' || this.peers.has(g)) return; this.pending = this.pending.filter(q => q.g !== g); const id = this.sess;
+    let used = new Set([0]); for (const p of this.peers.values()) used.add(p.pid); let pid = 1; while (used.has(pid)) pid++; if (pid >= PARTY_MAX) return;
+    const pc = new RTCPeerConnection({ iceServers: this.ice }), dc = pc.createDataChannel('party', { ordered: true }), P = { pc, dc, pid, g, name, open: false, t0: performance.now(), rl: { n: 0, t: performance.now(), bad: 0 } }; this.peers.set(g, P);
+    dc.onopen = () => { if (id !== this.sess) return; P.open = true; this.names[pid] = P.name; this.sendRoster(); this.sendTo(P, { k: 'cfg', c: this.cfgNow() }); this.say(this.count() + ' in the room', 'live'); if (this.round && Game.state === 'playing') this.sendTo(P, { k: 'late' }); };
+    dc.onclose = () => { if (id !== this.sess) return; this.drop(P); };
+    dc.onmessage = (e) => { if (id === this.sess) this.hostRecv(P, e.data); };
+    pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed') this.drop(P); };
+    (async () => { try { await pc.setLocalDescription(await pc.createOffer()); await this.gathered(pc); if (id !== this.sess) return; await this.post('o', { g, type: pc.localDescription.type, sdp: pc.localDescription.sdp }); } catch (e) { this.drop(P); } })();
+    UI.dirty = true;
+  },
+  deny(g) { const q = this.pending.find(x => x.g === g); this.pending = this.pending.filter(x => x.g !== g); this.blocked.add(g); this.post('o', { g, deny: 'The host said no' }).catch(() => {}); UI.dirty = true; return q; },
+  drop(P) { if (!this.peers.has(P.g)) return; this.peers.delete(P.g); delete this.names[P.pid]; delete this.tbl[P.pid]; if (this.prep) { delete this.prep.st[P.pid]; } try { P.dc && P.dc.close(); } catch (x) {} try { P.pc && P.pc.close(); } catch (x) {} this.sendRoster(); this.say(this.count() + ' in the room', 'live'); },
+  kick(pid, why) { for (const P of this.peers.values()) if (P.pid === pid) { this.blocked.add(P.g); this.sendTo(P, { k: 'kick', why: why || 'The host removed you' }); const nm = P.name; this.drop(P); UI.toast(nm + (why ? ' was removed (' + why + ')' : ' was removed')); return; } },
   count() { return 1 + [...this.peers.values()].filter(p => p.open).length; },
   // ---------- guest ----------
   join(code) {
-    this.close(); this.role = 'guest'; this.code = code; this.gid = Math.random().toString(36).slice(2, 10); this.say('Looking for room ' + code + '…', 'opening'); const id = this.sess; let got = false;
-    const to = setTimeout(() => { if (!got && id === this.sess) this.say('No room ' + code + ' found. Check the code (the host opens the room first).', 'error'); }, 10000);
-    this.sub('o', async (txt) => {
-      let o; try { o = JSON.parse(txt); } catch (e) { return; } if (got || !o || o.g !== this.gid || !o.sdp) return; got = true; clearTimeout(to);
+    this.close(); this.role = 'guest'; this.code = code; this.gid = Math.random().toString(36).slice(2, 12).padEnd(8, 'x'); this.say('Looking for room ' + code + '…', 'opening'); const id = this.sess; let got = false, waiting = false, to;
+    const fail = (m) => { if (id === this.sess && !got) this.say(m, 'error'); };
+    to = setTimeout(() => fail('No room ' + code + ' found. Check the code (the host opens the room first).'), 12000);
+    const es = this.sub('o', async (txt) => {
+      let o; try { o = JSON.parse(txt); } catch (e) { return; } if (got || !o || o.g !== this.gid) return;
+      if (o.deny) { clearTimeout(to); got = true; try { es.close(); } catch (e) {} this.say(cleanStr(o.deny, 60) + '.', 'error'); return; }
+      if (o.wait) { if (!waiting) { waiting = true; clearTimeout(to); this.say('Room found: waiting for the host to let you in…', 'opening'); to = setTimeout(() => fail('The host did not answer. Ask them to check the room, then try again.'), 180000); } return; }
+      if (!this.validSdp(o, 'offer')) return; got = true; clearTimeout(to); try { es.close(); } catch (e) {}
       try {
-        this.say('Room found: connecting…', 'connecting'); const pc = this.pc = new RTCPeerConnection({ iceServers: this.ice });
-        pc.ondatachannel = (e) => { const dc = this.dc = e.channel; dc.onopen = () => { if (id !== this.sess) return; this.st = 'live'; this.say('Connected: wait for the host to start a song', 'live'); this.send({ k: 'hi', n: this.myName() }); }; dc.onclose = () => { if (id === this.sess && this.st === 'live') { this.say('Disconnected from the room', 'closed'); this.round = false; } }; dc.onmessage = (ev) => { if (id === this.sess) this.guestRecv(ev.data); }; };
+        this.say('Let in: connecting…', 'connecting'); const pc = this.pc = new RTCPeerConnection({ iceServers: this.ice });
+        pc.ondatachannel = (e) => { const dc = this.dc = e.channel; dc.binaryType = 'arraybuffer'; dc.onopen = () => { if (id !== this.sess) return; this.st = 'live'; this.say('Connected: wait for the host to start a song', 'live'); this.send({ k: 'hi', n: this.myName() }); }; dc.onclose = () => { if (id === this.sess && this.st === 'live') { this.say('Disconnected from the room', 'closed'); this.round = false; } }; dc.onmessage = (ev) => { if (id === this.sess) this.guestRecv(ev.data); }; };
         pc.onconnectionstatechange = () => { if (id === this.sess && pc.connectionState === 'failed') this.say('Could not connect (a strict network or firewall?). Try again.', 'error'); };
-        await pc.setRemoteDescription({ type: o.type, sdp: o.sdp }); await pc.setLocalDescription(await pc.createAnswer()); await this.gathered(pc); if (id !== this.sess) return;
+        await pc.setRemoteDescription({ type: 'offer', sdp: o.sdp }); await pc.setLocalDescription(await pc.createAnswer()); await this.gathered(pc); if (id !== this.sess) return;
         await this.post('a', { g: this.gid, type: pc.localDescription.type, sdp: pc.localDescription.sdp });
-      } catch (e) { this.say('Could not join: ' + (e && e.message ? e.message : e), 'error'); }
+      } catch (e) { this.say('Could not join: ' + cleanStr(e && e.message ? e.message : e, 80), 'error'); }
     });
-    this.post('j', { g: this.gid, n: this.myName() }).catch(() => this.say('Could not reach the relay', 'error'));
+    this.post('j', { g: this.gid, n: this.myName() }).catch(() => fail('Could not reach the relay'));
   },
   send(o) { try { if (this.dc && this.dc.readyState === 'open') this.dc.send(JSON.stringify(o)); } catch (e) {} },
   sendTo(P, o) { try { if (P.dc && P.dc.readyState === 'open') P.dc.send(JSON.stringify(o)); } catch (e) {} },
-  bcast(o, except) { const s = JSON.stringify(o); for (const P of this.peers.values()) if (P !== except && P.dc && P.dc.readyState === 'open') try { P.dc.send(s); } catch (e) {} },
-  sendRoster() { for (const P of this.peers.values()) this.sendTo(P, { k: 'roster', you: P.pid, p: this.names }); UI.dirty = true; },
+  bcast(o, except) { const s = JSON.stringify(o); for (const P of this.peers.values()) if (P !== except && P.open && P.dc && P.dc.readyState === 'open') try { P.dc.send(s); } catch (e) {} },
+  sendRoster() { for (const P of this.peers.values()) if (P.open) this.sendTo(P, { k: 'roster', you: P.pid, p: this.names }); UI.dirty = true; },
+  cfgNow() { const it = Library.items[Library.selected]; return { key: it ? it.key : '', name: it ? cleanStr(it.name, 60) : '', mode: Settings.mode, diff: Settings.difficulty | 0, coop: !!Settings.partyCoop, drv: Settings.partyDriver | 0 }; },
   // ---------- messages ----------
   hostRecv(P, txt) {
-    let m; try { m = JSON.parse(txt); } catch (e) { return; }
-    if (m.k === 'hi') { P.name = (m.n || P.name).slice(0, 14); this.names[P.pid] = P.name; this.sendRoster(); }
-    else if (m.k === 's') { m.i = P.pid; this.tbl[P.pid] = Object.assign(this.tbl[P.pid] || {}, m, { at: performance.now() }); if (this.coop && P.pid === this.drv && Game.gunner) this.feedCoop(m); }
+    if (typeof txt !== 'string' || txt.length > 8192) return;
+    const rl = P.rl, now = performance.now(); rl.n++;                                                     // flood guard: more than ~150 messages a second, three seconds running, is removed
+    if (now - rl.t >= 1000) { if (rl.n > 150) rl.bad++; else rl.bad = Math.max(0, rl.bad - 1); rl.n = 0; rl.t = now; if (rl.bad >= 3) { this.kick(P.pid, 'sending too much'); return; } } if (rl.n > 500) { this.kick(P.pid, 'sending too much'); return; }
+    let m; try { m = JSON.parse(txt); } catch (e) { return; } if (!m || typeof m !== 'object' || typeof m.k !== 'string') return;
+    const st = this.prep && this.prep.st[P.pid];
+    if (m.k === 'need') { if (this.prep && m.key === this.prep.key && st) { const it = Library.items.find(i => i.key === m.key); st.s = 'send'; st.pct = 0; if (it) this.sendItem(P, it).catch(() => { if (this.prep && this.prep.st[P.pid]) this.prep.st[P.pid] = { s: 'fail', pct: 0 }; }); } }
+    else if (m.k === 'pg') { if (st) { st.s = m.s === 'scan' ? 'scan' : 'recv'; st.pct = PN(m.pct, 0, 100, 0) | 0; UI.dirty = true; } }
+    else if (m.k === 'rdy') { if (st) { this.prep.st[P.pid] = { s: 'ready', pct: 100 }; UI.dirty = true; this.prepCheck(); } }
+    else if (m.k === 'fail') { if (st) { this.prep.st[P.pid] = { s: 'fail', pct: 0 }; UI.dirty = true; this.prepCheck(); } }
+    else if (m.k === 'hi') { P.name = cleanName(m.n, P.name); this.names[P.pid] = P.name; this.sendRoster(); }
+    else if (m.k === 's') { const c = cleanState(m); c.at = performance.now(); c.i = P.pid; this.tbl[P.pid] = Object.assign(this.tbl[P.pid] || {}, c); if (this.coop && P.pid === this.drv && Game.gunner) this.feedCoop(c); }
     else if (m.k === 'rl') this.hostRelay(P, m);
-    else if (m.k === 'fin') { const r = this.tbl[P.pid] = Object.assign(this.tbl[P.pid] || {}, { sc: m.sc | 0, cb: m.mc | 0, f: 1, fl: m.fl ? 1 : 0, ac: m.ac | 0, i: P.pid }); UI.dirty = true; }
-    else if (m.k === 'miss') { this.names[P.pid] = P.name; this.miss = P.name + ' is missing the song'; UI.dirty = true; }
+    else if (m.k === 'fin') { const c = cleanState({ sc: m.sc, cb: m.mc, fl: m.fl, ac: m.ac }); c.f = 1; c.i = P.pid; this.tbl[P.pid] = Object.assign(this.tbl[P.pid] || {}, c); UI.dirty = true; }
+    else if (m.k === 'miss') { this.miss = P.name + ' is missing the song'; UI.dirty = true; }
   },
   guestRecv(txt) {
-    let m; try { m = JSON.parse(txt); } catch (e) { return; }
-    if (m.k === 'roster') { this.pid = m.you | 0; this.names = m.p || {}; UI.dirty = true; }
-    else if (m.k === 'rl') this.recvRelay(m.m);
-    else if (m.k === 'tbl') { for (const r of m.p) { if (this.coop && r.i === this.drv && Game.gunner) this.feedCoop(r); if (r.i === this.pid) continue; this.tbl[r.i] = Object.assign(this.tbl[r.i] || {}, r, { at: performance.now() }); } for (const k of Object.keys(this.tbl)) if (!(k in this.names)) delete this.tbl[k]; }
+    if (typeof txt !== 'string') { this.xfChunk(txt); return; } if (txt.length > 12000) return; let m; try { m = JSON.parse(txt); } catch (e) { return; } if (!m || typeof m !== 'object' || typeof m.k !== 'string') return;
+    if (m.k === 'prep') { this.onPrep(m); return; }
+    if (m.k === 'xf') { this.xfCtl(m); return; }
+    if (m.k === 'roster') { this.pid = PN(m.you, 0, 7, 0) | 0; const n = {}; if (m.p && typeof m.p === 'object') for (let i = 0; i < PARTY_MAX; i++) if (typeof m.p[i] === 'string') n[i] = cleanName(m.p[i], 'Player'); this.names = n; UI.dirty = true; }
+    else if (m.k === 'cfg') { const c = m.c || {}; this.cfg = { key: cleanStr(c.key, 200), name: cleanStr(c.name, 60), mode: PARTY_MODES.includes(c.mode) ? c.mode : 'play', diff: PN(c.diff, 0, 3, 1) | 0, coop: !!c.coop, drv: PN(c.drv, 0, 7, 0) | 0 }; UI.dirty = true; }
+    else if (m.k === 'rl') this.recvRelay(m.m, PN(m.f, 0, 7, 0) | 0);
+    else if (m.k === 'tbl') { if (!Array.isArray(m.p)) return; for (const r0 of m.p.slice(0, PARTY_MAX)) { if (!r0 || typeof r0 !== 'object') continue; const i = PN(r0.i, 0, 7, -1) | 0; if (i < 0) continue; const r = cleanState(r0); r.i = i; if (this.coop && i === this.drv && Game.gunner) this.feedCoop(r); if (i === this.pid) continue; r.at = performance.now(); this.tbl[i] = Object.assign(this.tbl[i] || {}, r); } for (const k of Object.keys(this.tbl)) if (!(k in this.names)) delete this.tbl[k]; }
     else if (m.k === 'start') this.begin(m);
     else if (m.k === 'late') { UI.toast('A song is already playing: you join at the next one'); }
     else if (m.k === 'end') { this.round = false; }
+    else if (m.k === 'lobby') { this.round = false; if (UI.screen === 'results' || UI.screen === 'rank') UI.set('party'); }
+    else if (m.k === 'kick') { const why = cleanStr(m.why, 60); this.close(); this.say(why + '.', 'error'); UI.toast(why); }
   },
   // ---------- rounds ----------
-  startRound() {                                                          // host only: everyone plays the host's song, difficulty and mode
+  startRound(force) {                                                     // host only: make sure everyone HAS the song (it is sent to anyone missing it), then everyone plays the host's song, difficulty and mode
     if (this.role !== 'host') return; const it = Library.items[Library.selected]; if (!it || it.status !== 'ready') { UI.toast('Pick a song first'); return; }
     if (Settings.mode === 'journey') { UI.toast('Journey is a ride, not a race: pick Game, Sabers, Punch, Drive-by or Guitar'); return; }
-    this.tbl = {}; this.miss = ''; this.round = true; this.me = { fin: false };
+    const open = [...this.peers.values()].filter(p => p.open);
+    if (!force && open.length) { this.prepare(it, open); return; }
+    this.prep = null; this.go(it);
+  },
+  prepare(it, open) {
+    if (this.prep) return; const st = {}; for (const P of open) st[P.pid] = { s: 'ask', pct: 0 }; this.prep = { key: it.key, name: it.name, t0: performance.now(), st };
+    this.bcast({ k: 'prep', key: it.key, name: cleanStr(it.name, 80) }); this.say('Checking everyone has "' + it.name + '"…', 'live'); UI.dirty = true;
+  },
+  prepCheck() {                                                            // host: go as soon as every player is ready (or after two and a half minutes)
+    const pr = this.prep; if (!pr) return; const open = new Set([...this.peers.values()].filter(p => p.open).map(p => p.pid));
+    for (const k of Object.keys(pr.st)) if (!open.has(+k)) delete pr.st[k];
+    const all = Object.values(pr.st).every(s => s.s === 'ready' || s.s === 'fail'), late = performance.now() - pr.t0 > 150000;
+    if (all || late) { const it = Library.items.find(i => i.key === pr.key); this.prep = null; if (it && it.status === 'ready') this.go(it); else UI.toast('The song is not ready'); }
+  },
+  go(it) {
+    this.say(this.count() + ' in the room', 'live'); this.tbl = {}; this.miss = ''; this.round = true; this.me = { fin: false };
     const coop = !!Settings.partyCoop && Settings.mode === 'drive' && this.count() >= 2, drv = (Settings.partyDriver in this.names) ? Settings.partyDriver | 0 : 0;
-    this.bcast({ k: 'start', key: it.key, name: it.name, diff: Settings.difficulty, mode: Settings.mode, flight: !!Settings.flight, rules: Settings.rules, view: Settings.partyView || 'ghost', coop, driver: drv });
+    this.bcast({ k: 'start', key: it.key, name: cleanStr(it.name, 80), diff: Settings.difficulty, mode: Settings.mode, flight: !!Settings.flight, rules: Settings.rules, coop, driver: drv });
     this.setRole(coop, drv); UI.set(null); startSelected();
   },
   setRole(coop, drv) { this.coop = !!coop; this.drv = drv | 0; this.hist = []; Spectate.last = null; const gun = this.coop && this.pid !== this.drv; Game.watch = gun; Game.gunner = gun; if (gun) Game.hostPaused = false; },
   begin(m) {
-    const L = Library, idx = L.items.findIndex((i) => i.key === m.key); this.tbl = {}; this.round = true; this.me = { fin: false };
-    if (idx < 0 || L.items[idx].status !== 'ready') { this.round = false; this.miss = m.name || 'this song'; this.say('The host started "' + this.miss + '" and you do not have it yet. Add it in Find songs, then ask for another round.', 'live'); this.send({ k: 'miss' }); UI.toast('Missing song: ' + this.miss); return; }
-    Settings.mode = m.mode || 'play'; Settings.difficulty = m.diff | 0; Settings.flight = !!m.flight; if (m.rules) Settings.rules = m.rules; L.selected = idx; this.miss = '';
+    this.syncMsg = ''; this.sync = null; this.ask = ''; const L = Library, key = cleanStr(m.key, 200), nm = cleanStr(m.name, 80), idx = L.items.findIndex((i) => i.key === key); this.tbl = {}; this.round = true; this.me = { fin: false };
+    if (!PARTY_MODES.includes(m.mode)) { this.round = false; return; }
+    if (idx < 0 || L.items[idx].status !== 'ready') { this.round = false; this.miss = nm || 'this song'; this.say('The host started "' + this.miss + '" and you do not have it yet. Ask the host for another round and it will be sent to you.', 'live'); this.send({ k: 'miss' }); UI.toast('Missing song: ' + this.miss); return; }
+    Settings.mode = m.mode; Settings.difficulty = PN(m.diff, 0, 3, 1) | 0; Settings.flight = !!m.flight; if (m.rules === 'shield' || m.rules === 'relaxed') Settings.rules = m.rules; L.selected = idx; this.miss = ''; applyModeView();
     if (Game.state === 'playing' || Game.state === 'paused') { try { AudioEng.stop(); } catch (e) {} Game.state = 'menu'; }
-    this.setRole(m.coop && m.mode === 'drive', m.driver | 0); startSelected(); UI.toast(this.coop ? (this.pid === this.drv ? 'Co-op: you DRIVE, the others shoot' : 'Co-op: you are the GUNNER, shoot for ' + (this.names[this.drv] || 'the driver')) : 'Party round: ' + (m.name || 'song'));
+    this.setRole(!!m.coop && m.mode === 'drive', PN(m.driver, 0, 7, 0) | 0); startSelected(); UI.toast(this.coop ? (this.pid === this.drv ? 'Co-op: you DRIVE, the others shoot' : 'Co-op: you are the GUNNER, shoot for ' + (this.names[this.drv] || 'the driver')) : 'Party round: ' + (nm || 'song'));
   },
-  onStart() { if (this.round) { this.me = { fin: false }; this.tx = 0; this.mk = null; if (this.coop) Game.coop = { role: this.pid === this.drv ? 'driver' : 'gunner' }; } },
+  onStart() { if (this.round) { this.me = { fin: false }; this.tx = 0; this.mk = null; this.myRank = 0; if (this.coop) Game.coop = { role: this.pid === this.drv ? 'driver' : 'gunner' }; } },
   onEnd() {
     if (this.coop && Game.coop && Game.coop.role === 'driver') this.sendAll({ k: 'cend', failed: !!Game.failed, score: Game.score | 0 });
     if (!this.round && this.st !== 'live') return; const g = Game, o = { k: 'fin', sc: g.score | 0, mc: g.maxCombo | 0, fl: g.failed ? 1 : 0, ac: Math.round(100 * (g.hits || 0) / Math.max(1, (g.hits || 0) + (g.misses || 0))) };
@@ -7346,6 +7649,16 @@ const Party = {
   },
   me10() { const g = Game; return { mu: g.mult | 0, en: Math.round(g.energy), od: g.odActive ? 1 : 0, bh: g.boss && g.boss.st === 'fight' ? +(g.boss.hp / g.boss.hpMax).toFixed(3) : -1, k: 's', t: +g.songT.toFixed(2), l: Math.round(g.lat * 100), a: Math.round((g.alt || 0) * 100), sc: g.score | 0, cb: g.combo | 0, h: g.hits | 0, m: g.misses | 0 }; },
   tick(dt) {
+    if (this.prep) { this.pk = (this.pk || 0) + dt; if (this.pk > 1) { this.pk = 0; this.prepCheck(); UI.dirty = true; } }
+    if (this.role === 'host') {
+      this.hk = (this.hk || 0) + dt; if (this.hk > 1) {
+        this.hk = 0; const now = performance.now();
+        if (!this.locked && now > this.openUntil) { this.locked = true; this.say('Room locked after 20 minutes. Unlock it to let more players in.', 'live'); }
+        for (const P of [...this.peers.values()]) if (!P.open && now - P.t0 > 40000) this.drop(P);
+        if (this.pending.some(q => now - q.t > 300000)) { this.pending = this.pending.filter(q => now - q.t <= 300000); UI.dirty = true; }
+        const sg = JSON.stringify(this.cfgNow()); if (sg !== this.cfgSig) { this.cfgSig = sg; this.bcast({ k: 'cfg', c: this.cfgNow() }); UI.dirty = true; }
+      }
+    }
     if (this.st !== 'live') return; const g = Game, playing = this.round && g.state === 'playing' && !g.watch && g.songT > -3;
     this.tx += dt; if (this.tx < 0.1) return; this.tx = 0;
     if (playing && (!this.coop || this.pid === this.drv)) { const s = this.me10(); if (this.role === 'host') this.tbl[0] = Object.assign(this.tbl[0] || { i: 0 }, s, { i: 0, f: 0 }); else this.send(s); }
@@ -7354,11 +7667,73 @@ const Party = {
       this.bcast({ k: 'tbl', p });
     }
   },
+  // ---------- song sync: the host's file goes straight to anyone who is missing it (no searching, no adding) ----------
+  async sendItem(P, it) {
+    const stems = it.stems || null, meta = { key: it.key, name: it.name, sub: it.sub || '', bs: it.bs || null, ch: it.ch || null, stems: stems ? stems.map(s => ({ n: s.n, type: s.blob.type })) : null, type: it.blob ? (it.blob.type || '') : '' };
+    const parts = [new Blob([JSON.stringify(meta)])].concat(stems ? stems.map(s => s.blob) : [it.blob]); let total = 0; for (const b of parts) total += b.size; const dc = P.dc; if (!dc) throw new Error('no channel');
+    this.sendTo(P, { k: 'xf', op: 'begin', key: it.key, n: parts.length, total }); let sent = 0, lastPct = -1;
+    for (let i = 0; i < parts.length; i++) {
+      this.sendTo(P, { k: 'xf', op: 'part', i, size: parts[i].size }); const buf = await parts[i].arrayBuffer();
+      for (let off = 0; off < buf.byteLength; off += 16384) {
+        while (dc.readyState === 'open' && dc.bufferedAmount > 1 << 20) await new Promise(r => { const t = setTimeout(r, 120); dc.onbufferedamountlow = () => { clearTimeout(t); dc.onbufferedamountlow = null; r(); }; dc.bufferedAmountLowThreshold = 256 * 1024; });
+        if (dc.readyState !== 'open') throw new Error('closed'); const ch = buf.slice(off, off + 16384); dc.send(ch); sent += ch.byteLength;
+        const pct = Math.floor(100 * sent / Math.max(1, total)); if (this.prep && this.prep.st[P.pid] && pct !== lastPct && pct % 3 === 0) { lastPct = pct; this.prep.st[P.pid].pct = pct; UI.dirty = true; }
+      }
+    }
+    this.sendTo(P, { k: 'xf', op: 'end', key: it.key });
+  },
+  onPrep(m) {                                                              // guest: the host is about to start this song; say 'ready' if it is here, otherwise ask for it
+    const key = cleanStr(m.key, 200), name = cleanStr(m.name, 80); if (!key) return; const have = Library.items.find(i => i.key === key); this.sync = { key, name, pct: 0, st: have ? 'wait' : 'ask' };
+    if (have) { this.waitReady(key); return; } this.ask = key; this.xin = null; this.send({ k: 'need', key }); this.syncMsg = 'Asking the host for "' + name + '"…'; UI.dirty = true;
+  },
+  waitReady(key) {
+    const id = this.sess, chk = () => {
+      if (id !== this.sess) return; const it = Library.items.find(i => i.key === key);
+      if (!it) { this.send({ k: 'fail' }); this.syncMsg = ''; return; }
+      if (it.status === 'ready') { this.send({ k: 'rdy' }); this.syncMsg = ''; this.sync = null; UI.dirty = true; return; }
+      if (it.status === 'error') { this.send({ k: 'fail' }); this.syncMsg = ''; return; }
+      if (it.status === 'idle') { it.status = 'queued'; Library.scan(); }
+      this.send({ k: 'pg', s: 'scan', pct: Math.round((it.progress || 0) * 100) }); this.syncMsg = 'Preparing "' + it.name + '" ' + Math.round((it.progress || 0) * 100) + '%'; UI.dirty = true; setTimeout(chk, 600);
+    }; chk();
+  },
+  xfAbort(why) { this.xin = null; this.ask = ''; this.send({ k: 'fail' }); this.syncMsg = 'Song transfer refused: ' + why; UI.dirty = true; },
+  xfCtl(m) {                                                               // a transfer is only accepted if THIS device asked for that song, and it must stay inside sane limits
+    if (m.op === 'begin') { const n = PN(m.n, 0, 99, 0) | 0, total = PN(m.total, 0, 1e12, 0); if (!this.ask || m.key !== this.ask) return; if (n < 2 || n > 12 || total < 1 || total > 120e6) { this.xfAbort('too big'); return; } this.xin = { key: this.ask, n, total, got: 0, parts: [], cur: null, lastPct: -1, sized: 0 }; }
+    else if (m.op === 'part' && this.xin) { const x = this.xin, size = PN(m.size, 0, 1e12, -1); if (x.cur || size < 0 || x.sized + size > x.total || (x.parts.length === 0 && size > 3e6)) { this.xfAbort('bad part'); return; } x.sized += size; x.cur = { size, bufs: [], have: 0 }; if (size === 0) { x.parts.push(new Blob([])); x.cur = null; } }
+    else if (m.op === 'end' && this.xin) { const x = this.xin; this.xin = null; if (x.parts.length !== x.n || x.got !== x.total) { this.ask = ''; this.send({ k: 'fail' }); this.syncMsg = 'The song transfer was incomplete'; UI.dirty = true; return; } this.xfDone(x).catch((e) => { this.send({ k: 'fail' }); this.syncMsg = 'Could not receive the song: ' + cleanStr((e && e.message) || e, 80); UI.dirty = true; }); }
+  },
+  xfChunk(buf) {
+    const x = this.xin; if (!x || !x.cur || !(buf instanceof ArrayBuffer)) return; if (x.cur.have + buf.byteLength > x.cur.size) { this.xfAbort('part too long'); return; }
+    x.cur.bufs.push(buf); x.cur.have += buf.byteLength; x.got += buf.byteLength;
+    if (x.cur.have >= x.cur.size) { x.parts.push(new Blob(x.cur.bufs)); x.cur = null; }
+    const pct = Math.floor(100 * x.got / Math.max(1, x.total)); if (pct !== x.lastPct && pct % 3 === 0) { x.lastPct = pct; this.send({ k: 'pg', s: 'recv', pct }); this.syncMsg = 'Receiving "' + ((this.sync && this.sync.name) || 'the song') + '"  ' + pct + '%'; UI.dirty = true; }
+  },
+  async xfDone(x) {
+    this.ask = ''; if (x.parts[0].size > 3e6) throw new Error('bad info'); const meta = JSON.parse(await x.parts[0].text());
+    if (!meta || typeof meta !== 'object' || meta.key !== x.key || typeof meta.name !== 'string') throw new Error('wrong song');
+    if (Library.items.some(i => i.key === meta.key)) { this.waitReady(meta.key); return; }
+    const mime = (t) => AUDIO_MIME.includes(String(t || '')) ? t : 'audio/mpeg', obj = (v) => v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+    for (let i = 1; i < x.parts.length; i++) { const head = new Uint8Array(await x.parts[i].slice(0, 16).arrayBuffer()); if (!sniffAudio(head)) throw new Error('that is not an audio file'); }
+    const name = cleanStr(meta.name, 80) || 'Party song', sub = cleanStr(meta.sub, 60), bs = obj(meta.bs), ch = obj(meta.ch);
+    const it = { key: meta.key, name, sub, bs, ch, status: 'queued', progress: 0 }, rec = { key: meta.key, name, sub, bs, ch };
+    if (meta.stems) { if (!Array.isArray(meta.stems) || meta.stems.length !== x.parts.length - 1 || meta.stems.length > 8) throw new Error('bad stems'); it.stems = meta.stems.map((s, i) => ({ n: cleanStr(s && s.n, 40), blob: new Blob([x.parts[i + 1]], { type: mime(s && s.type) }) })); rec.stems = it.stems; rec.size = it.stems.reduce((a, s) => a + s.blob.size, 0); }
+    else { if (x.parts.length !== 2) throw new Error('bad song'); it.blob = new Blob([x.parts[1]], { type: mime(meta.type) }); rec.blob = it.blob; rec.type = it.blob.type; rec.size = it.blob.size; }
+    Library.items.push(it); IDB.put('tracks', rec); Library.changed(); Library.scan(); this.waitReady(meta.key);
+  },
   // ---------- co-op (Drive-by: one drives, the others shoot) ----------
   peerByPid(pid) { for (const P of this.peers.values()) if (P.pid === pid) return P; return null; },
-  sendAll(m) { if (!this.coop) return; if (this.role === 'host') this.bcast({ k: 'rl', m }); else this.send({ k: 'rl', to: '*', m }); },
-  sendPid(pid, m) { if (this.role === 'host') { if (pid === 0) this.recvRelay(m); else { const P = this.peerByPid(pid); if (P) this.sendTo(P, { k: 'rl', m }); } } else this.send({ k: 'rl', to: pid, m }); },
-  hostRelay(P, m) { if (m.to === '*') { this.bcast({ k: 'rl', m: m.m }, P); this.recvRelay(m.m); } else this.sendPid(m.to | 0, m.m); },
+  sendAll(m) { if (!this.coop) return; if (this.role === 'host') this.bcast({ k: 'rl', f: 0, m }); else this.send({ k: 'rl', to: '*', m }); },
+  sendPid(pid, m) { if (this.role === 'host') { if (pid === 0) this.recvRelay(m, 0); else { const P = this.peerByPid(pid); if (P) this.sendTo(P, { k: 'rl', f: 0, m }); } } else this.send({ k: 'rl', to: pid, m }); },
+  relayOK(m, from) {                                                       // who may say what: only the driver sends orbs and the end; only gunners send shots
+    if (!this.coop || !m || typeof m !== 'object') return false; const drvMsg = m.k === 'orb' || m.k === 'orbx' || m.k === 'cend';
+    if (drvMsg) return from === this.drv; if (m.k === 'ch') return from !== this.drv; return false;
+  },
+  hostRelay(P, m) {
+    const inner = m.m; if (!this.relayOK(inner, P.pid)) return; const to = m.to === '*' ? '*' : PN(m.to, 0, 7, -1) | 0;
+    if (to === '*') { this.bcast({ k: 'rl', f: P.pid, m: inner }, P); this.recvRelay(inner, P.pid); }
+    else if (to === 0) this.recvRelay(inner, P.pid);
+    else if (to > 0) { const Q = this.peerByPid(to); if (Q) this.sendTo(Q, { k: 'rl', f: P.pid, m: inner }); }
+  },
   report(m) { if (this.coop) this.sendPid(this.drv, m); },
   feedCoop(r) {
     Spectate.last = { l: r.l, a: r.a, sc: r.sc, cb: r.cb, mu: r.mu || 1, en: r.en == null ? 100 : r.en, od: r.od, h: r.h || 0, m: r.m || 0 }; Spectate.lastAt = performance.now();
@@ -7370,15 +7745,16 @@ const Party = {
     if (t < h[h.length - 1].t) { for (let i = h.length - 1; i > 0; i--) if (h[i - 1].t <= t) { const a = h[i - 1], b = h[i], k = clamp((t - a.t) / Math.max(0.01, b.t - a.t), 0, 1); v = a.l + (b.l - a.l) * k; break; } else if (i === 1) v = h[0].l; }
     g.latTarget = v; Input.target = v;
   },
-  recvRelay(m) {
-    const g = Game;
-    if (m.k === 'orb') { if (g.gunner) g.addOrb(m); }
-    else if (m.k === 'orbx') { const p = g.proj.find(q => q.id === m.id); if (p && !p.dead) { p.dead = true; const o = R.projPos(p); g.emit({ k: 'zap', hazard: true, x: o.x, y: o.y, z: o.z, lane: 2 }); } }
-    else if (m.k === 'cend') { if (g.watch && g.state === 'playing') { g._wf = true; g.score = m.score | 0; g.finish(!!m.failed); g._wf = false; UI.set('results'); } }
+  recvRelay(m, from) {
+    const g = Game; if (!this.relayOK(m, from)) return;
+    if (m.k === 'orb') { if (g.gunner) { const kind = typeof m.kind === 'string' ? cleanStr(m.kind, 12) : PN(m.kind, 0, 9, 0); g.addOrb({ id: PN(m.id, 0, 1e7, 0) | 0, fl: PN(m.fl, 0.2, 8, 1), d0: PN(m.d0, -60, 80, 0), x0: PN(m.x0, -20, 20, 0), lane: PN(m.lane, -4, 4, 0) | 0, kind }); } }
+    else if (m.k === 'orbx') { const id = PN(m.id, 0, 1e7, -1); const p = g.proj.find(q => q.id === id); if (p && !p.dead) { p.dead = true; const o = R.projPos(p); g.emit({ k: 'zap', hazard: true, x: o.x, y: o.y, z: o.z, lane: 2 }); } }
+    else if (m.k === 'cend') { if (g.watch && g.state === 'playing') { g._wf = true; g.score = PN(m.score, 0, 1e9, 0) | 0; g.finish(!!m.failed); g._wf = false; UI.set('results'); } }
     else if (m.k === 'ch' && g.coop && g.coop.role === 'driver' && g.state === 'playing') {
-      if (m.ty === 'n') { for (let i = Math.max(0, g.resolved - 6); i < g.notes.length; i++) { const n = g.notes[i]; if (n.t > m.t + 0.05) break; if (n.hit === HIT_NONE && n.lane === m.lane && Math.abs(n.t - m.t) < 0.015 && n.type !== NOTE_HOLD) { g.shootNote(n, R.notePos(n), m.on); break; } } }
-      else if (m.ty === 'o') { const p = g.proj.find(q => q.id === m.id); if (p) g.shootProj(p, R.projPos(p), m.on); }
-      else if (m.ty === 'b') g.bossHit(m.n | 0 || 1);
+      const ty = m.ty, lane = PN(m.lane, -4, 4, 0) | 0, t = PN(m.t, -30, 3600, 0), on = !!m.on;
+      if (ty === 'n') { for (let i = Math.max(0, g.resolved - 6); i < g.notes.length; i++) { const n = g.notes[i]; if (n.t > t + 0.05) break; if (n.hit === HIT_NONE && n.lane === lane && Math.abs(n.t - t) < 0.015 && n.type !== NOTE_HOLD) { g.shootNote(n, R.notePos(n), on); break; } } }
+      else if (ty === 'o') { const id = PN(m.id, 0, 1e7, -1), p = g.proj.find(q => q.id === id); if (p) g.shootProj(p, R.projPos(p), on); }
+      else if (ty === 'b') g.bossHit(PN(m.n, 1, 9, 1) | 0);
     }
   },
   // ---------- read-outs ----------
@@ -7389,73 +7765,165 @@ const Party = {
     out.sort((a, b) => b.sc - a.sc); out.forEach((o, i) => { o.rank = i + 1; }); return out;
   },
   sig() { if (!this.round || Game.state !== 'playing' || this.coop) return ''; const s = this.standings(); return s.length < 2 ? '' : s.map(o => o.i + ':' + Math.round(o.sc / 50) + (o.f ? 'f' : '')).join(','); },
-  hudDraw(g) {                                                            // a small live leaderboard in the top-left of the HUD
-    const s = this.standings(); if (s.length < 2) return; const me = s.findIndex(o => o.you), show = s.slice(0, 4); if (me >= 4) show[3] = s[me];
-    g.save(); g.textBaseline = 'alphabetic'; const x = 8, y = 6, rh = 22, w = 196; UI.rr.call({ g }, x, y, w, 8 + show.length * rh, 10); g.fillStyle = 'rgba(8,4,28,0.62)'; g.fill();
-    show.forEach((o, k) => { const yy = y + 6 + k * rh + 16; g.font = UI.font(14, 900); g.fillStyle = o.col; g.textAlign = 'left'; g.fillText(String(o.rank), x + 8, yy); g.font = UI.font(14, o.you ? 900 : 600); g.fillStyle = o.you ? '#fff' : '#cfe'; g.fillText((o.n || '').slice(0, 9), x + 26, yy); g.textAlign = 'right'; g.fillText((o.f ? '✓ ' : '') + o.sc.toLocaleString(), x + w - 8, yy); });
-    g.restore();
-  },
   // rivals for the renderer: where each other player is on the song and the track
   rivals() {
-    const out = [], now = performance.now(); if (!this.round || Game.state !== 'playing' || this.coop) return out;
-    for (const k of Object.keys(this.tbl)) { const i = +k, r = this.tbl[k]; if (i === this.pid || r.f || r.l === undefined || (r.at && now - r.at > 3500)) continue; out.push({ i, lat: r.l / 100, alt: r.a / 100, t: r.t || 0, col: PARTY_COL[i % PARTY_COL.length], name: this.names[i] || '' }); }
+    const out = [], now = performance.now(); if (!this.round || Game.state !== 'playing' || this.coop) return out; const rk = {}; for (const o of this.standings()) rk[o.i] = o.rank;
+    for (const k of Object.keys(this.tbl)) { const i = +k, r = this.tbl[k]; if (i === this.pid || r.f || r.l === undefined || (r.at && now - r.at > 3500)) continue; out.push({ i, lat: r.l / 100, alt: r.a / 100, t: r.t || 0, col: PARTY_COL[i % PARTY_COL.length], name: this.names[i] || '', rank: rk[i] || 0 }); }
     return out;
   },
-  // ---------- screen ----------
+  // ---------- screen actions ----------
+  songStep(d) { const L = Library, n = L.items.length; if (!n) return; for (let k = 1; k <= n; k++) { const j = (L.selected + d * k + n * 4) % n; if (L.items[j].status === 'ready') { L.selected = j; break; } } UI.dirty = true; },
   act(id, parts) {
-    const a = parts[0];
+    const a = parts[0], host = this.role === 'host';
     if (a === 'pt_host') this.host();
-    else if (a === 'pt_join') { this.close(); this.role = 'pick'; this.input = ''; this.msg = 'Type the 6 digit room code'; UI.dirty = true; }
-    else if (a === 'pt_key') { if (this.role !== 'pick') return; if (parts[1] === 'x') this.input = this.input.slice(0, -1); else if (this.input.length < 6) this.input += parts[1]; if (this.input.length === 6) { const c = this.input; this.role = null; this.join(c); } UI.dirty = true; }
+    else if (a === 'pt_join') { this.close(); this.role = 'pick'; this.input = ''; this.msg = 'Type the 8 digit room code'; UI.dirty = true; }
+    else if (a === 'pt_key') { if (this.role !== 'pick') return; if (parts[1] === 'x') this.input = this.input.slice(0, -1); else if (/^\d$/.test(parts[1]) && this.input.length < 8) this.input += parts[1]; if (this.input.length === 8) { const c = this.input; this.role = null; this.join(c); } UI.dirty = true; }
     else if (a === 'pt_start') this.startRound();
-    else if (a === 'pt_song') UI.set('home');
-    else if (a === 'pt_view') { Settings.partyView = Settings.partyView === 'tracks' ? 'ghost' : 'tracks'; saveSettings(); UI.dirty = true; }
-    else if (a === 'pt_coop') { Settings.partyCoop = !Settings.partyCoop; saveSettings(); UI.dirty = true; }
-    else if (a === 'pt_driver') { const ids = Object.keys(this.names).map(Number).sort((x, y) => x - y); const i = ids.indexOf(Settings.partyDriver | 0); Settings.partyDriver = ids[(i + 1) % ids.length] | 0; saveSettings(); UI.dirty = true; }
+    else if (a === 'pt_song') this.songStep(+parts[1] || 1);
+    else if (a === 'pt_name') this.setName();
+    else if (a === 'pt_browse') UI.set('home');
+    else if (a === 'pt_view') { Settings.partyView = parts[1] === 'tracks' ? 'tracks' : 'ghost'; saveSettings(); UI.dirty = true; }
+    else if (a === 'pt_coop' && host) { Settings.partyCoop = !Settings.partyCoop; saveSettings(); UI.dirty = true; }
+    else if (a === 'pt_driver' && host) { const ids = Object.keys(this.names).map(Number).sort((x, y) => x - y); const i = ids.indexOf(Settings.partyDriver | 0); Settings.partyDriver = ids[(i + 1) % ids.length] | 0; saveSettings(); UI.dirty = true; }
+    else if (a === 'pt_allow' && host) { const q = this.pending.find(x => x.g === parts[1]); if (q) this.accept(q.g, q.n); UI.dirty = true; }
+    else if (a === 'pt_deny' && host) this.deny(parts[1]);
+    else if (a === 'pt_kick' && host) this.kick(+parts[1] | 0);
+    else if (a === 'pt_lock' && host) { this.locked = !this.locked; if (!this.locked) this.openUntil = performance.now() + 20 * 60000; UI.dirty = true; }
+    else if (a === 'pt_auto' && host) { this.auto = !this.auto; if (this.auto) for (const q of [...this.pending]) this.accept(q.g, q.n); UI.dirty = true; }
+    else if (a === 'pt_tab') { this.tab = parts[1] === 'setup' ? 'setup' : 'room'; UI.dirty = true; }
+    else if (a === 'pt_next' && host) { this.bcast({ k: 'lobby' }); this.round = false; this.tbl = {}; UI.set('party'); }
+    else if (a === 'pt_lobby') { UI.set('party'); }
     else if (a === 'pt_leave') { this.close(); UI.dirty = true; }
     else if (a === 'pt_back') UI.set(UI.screen === 'rank' ? 'results' : 'home');
     else if (a === 'pt_rank') UI.set('rank');
-  },
-  draw(u) {
-    const g = u.g; u.panelBG(4, 4, UW - 8, UH - 8); u.title('Party', 'Up to 8 players, same song, any device');
-    u.button('pt_back', 836, 26, 162, 50, 'Back', { size: 22 });
-    if (!this.role && this.st === 'idle') {
-      u.button('pt_host', 70, 130, 420, 190, '', { r: 22 }); u.text('HOST A ROOM', 280, 200, u.font(26, 800), C.cy, 'center'); u.text('Pick the song and mode.', 280, 242, u.font(19, 500), C.dim, 'center'); u.text('Friends join with a room code.', 280, 270, u.font(19, 500), C.dim, 'center');
-      u.button('pt_join', 534, 130, 420, 190, '', { r: 22 }); u.text('JOIN A ROOM', 744, 200, u.font(26, 800), C.cy, 'center'); u.text('Type the host\'s room code.', 744, 242, u.font(19, 500), C.dim, 'center'); u.text('You need the same song in your library.', 744, 270, u.font(19, 500), C.dim, 'center');
-      u.text('Everyone plays the host\'s song and mode on their own device (headset, phone or screen). Free public relay only helps you find each other.', UW / 2, 380, u.font(17, 500), C.dim, 'center'); return;
-    }
-    if (this.role === 'pick') {
-      u.text(this.msg, UW / 2, 140, u.font(24, 700), C.tx, 'center');
-      for (let i = 0; i < 6; i++) { const x = 332 + i * 60; u.rr(x, 162, 52, 66, 12); g.fillStyle = 'rgba(255,255,255,0.08)'; g.fill(); u.text(this.input[i] || '', x + 26, 210, u.font(40, 800), C.cy, 'center'); }
-      ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'x', '0'].forEach((k, i) => { const x = 392 + (i % 3) * 86, y = 250 + ((i / 3) | 0) * 66; u.button('pt_key:' + k, x, y, 78, 58, k === 'x' ? '⌫' : k, { size: 28, weight: 800 }); });
-      return;
-    }
-    const host = this.role === 'host', it = Library.items[Library.selected];
-    if (host && this.code) u.text(this.code.slice(0, 3) + ' ' + this.code.slice(3), 250, 176, u.font(64, 900), C.gd, 'center');
-    u.text(this.msg, host ? 250 : UW / 2, host ? 214 : 150, u.font(host ? 17 : 22, 700), this.st === 'error' ? C.red : C.ok, host ? 'center' : 'center');
-    // roster
-    const ids = Object.keys(this.names).map(Number).sort((a, b) => a - b), x0 = host ? 520 : 312;
-    u.text('PLAYERS  ' + ids.length + ' / ' + PARTY_MAX, x0, 120, u.font(17, 700), C.dim);
-    ids.forEach((i, k) => { const y = 132 + k * 34; u.rr(x0, y, 440, 30, 10); g.fillStyle = 'rgba(255,255,255,0.07)'; g.fill(); g.beginPath(); g.arc(x0 + 18, y + 15, 7, 0, 7); g.fillStyle = PARTY_COL[i % PARTY_COL.length]; g.fill(); u.text((this.names[i] || '?') + (i === this.pid ? '  (you)' : '') + (i === 0 ? '  ★ host' : ''), x0 + 36, y + 21, u.font(18, i === this.pid ? 800 : 600), C.tx); });
-    if (host) {
-      u.text('SONG', 40, 262, u.font(15, 700), C.dim); u.text(u.fit(it ? it.name : 'none selected', 420, u.font(22, 700)), 40, 292, u.font(22, 700), C.tx);
-      u.text(({ play: 'Game', saber: 'Sabers', punch: 'Punch', drive: 'Drive-by', guitar: 'Guitar', journey: 'Journey (not for racing)' })[Settings.mode] + '  ·  ' + (DIFFICULTIES[Settings.difficulty] ? DIFFICULTIES[Settings.difficulty].name : ''), 40, 322, u.font(18, 600), C.dim);
-      u.button('pt_song', 40, 340, 420, 52, 'Change song, mode or difficulty', { size: 19 });
-      u.button('pt_start', 40, 410, 420, 76, 'START FOR EVERYONE', { primary: true, size: 26, weight: 800, dis: this.count() < 2 && false });
-    } else {
-      u.text('The host picks the song and mode. Everyone plays it on their own device.', UW / 2, 330, u.font(19, 500), C.dim, 'center');
-    }
-    if (host && Settings.mode === 'drive') { const co = !!Settings.partyCoop, dn = this.names[Settings.partyDriver | 0] || this.names[0]; u.button('pt_coop', 520, 408, 216, 38, co ? 'Co-op: team up' : 'Co-op: off (race)', { size: 16, sel: co }); if (co) u.button('pt_driver', 744, 408, 216, 38, 'Driver: ' + dn, { size: 16 }); }
-    u.button('pt_view', host ? 520 : 312, 452, 440, 48, 'Rivals: ' + ((Settings.partyView || 'ghost') === 'tracks' ? 'own side tracks' : 'ghost ships on my track'), { size: 18 });
-    if (this.miss) u.text(this.miss, UW / 2, 524, u.font(18, 600), C.gd, 'center');
-    u.button('pt_leave', 312, 522, 400, 50, host ? 'Close room' : 'Leave room', { size: 20 });
-  },
-  drawResults(u) {                                                         // final table, shown as its own screen from the results page
-    const g = u.g, s = this.standings(); u.panelBG(4, 4, UW - 8, UH - 8); u.title('Rankings', this.round ? 'Waiting for everyone to finish…' : 'Final scores'); u.button('pt_back', 836, 26, 162, 50, 'Back', { size: 22 });
-    s.slice(0, 8).forEach((o, k) => { const y = 120 + k * 58; u.rr(80, y, 864, 50, 14); g.fillStyle = o.you ? 'rgba(25,227,255,0.18)' : 'rgba(255,255,255,0.07)'; g.fill(); u.text(String(o.rank), 112, y + 36, u.font(30, 900), o.col, 'center'); u.text(o.n + (o.you ? '  (you)' : ''), 150, y + 34, u.font(24, o.you ? 800 : 600), C.tx); u.text(o.f ? (o.fl ? 'out' : 'done') : 'playing', 620, y + 34, u.font(18, 600), o.f ? C.ok : C.gd, 'center'); u.text(o.sc.toLocaleString(), 920, y + 36, u.font(28, 800), C.tx, 'right'); });
-    if (this.role === 'host') u.button('pt_song', 312, 566, 400, 40, 'Pick the next song', { size: 18 });
   }
 };
+
+// ===== PARTY screens: the picker, the code keypad, the room (people on one side, the game setup on the other) and the final rankings, laid out for both the wide panel and the tall phone canvas =====
+Object.assign(Party, {
+  // a labelled pair/row of choices; items are [id, label, selected]; returns the y below
+  choices(u, x, y, w, h, label, items) {
+    u.label(label, x + 2, y); y += 12; const gap = 8, bw = (w - gap * (items.length - 1)) / items.length;
+    items.forEach((it, i) => u.chip(it[0], x + i * (bw + gap), y, bw, h, it[1], '', it[2], { ls: u.pt ? 26 : 20 })); return y + h + 10;
+  },
+  syncText(s) { return !s ? '' : s.s === 'ask' ? 'Asking…' : s.s === 'send' ? 'Sending song ' + s.pct + '%' : s.s === 'recv' ? 'Receiving ' + s.pct + '%' : s.s === 'scan' ? 'Preparing ' + s.pct + '%' : s.s === 'ready' ? '✓ Ready' : s.s === 'fail' ? '✗ Failed' : ''; },
+  draw(u) {
+    const P = u.pt, R = u.frame('Party', 'Up to 8 players  ·  any device', 'pt_back');
+    if (!this.role && this.st === 'idle') return this.drawPick(u, R);
+    if (this.role === 'pick') return this.drawKeys(u, R);
+    this.drawRoom(u, R);
+  },
+  drawPick(u, R) {
+    const P = u.pt, g = u.g, cw = P ? R.w : (R.w - 24) / 2, ch = P ? 200 : 210, y0 = R.y + (P ? 30 : 30);
+    const card = (id, x, y, title, l1, l2) => { u.button(id, x, y, cw, ch, '', { r: 24 }); u.text(title, x + cw / 2, y + ch * 0.36, u.font(P ? 38 : 30, 800), C.cy, 'center'); u.text(l1, x + cw / 2, y + ch * 0.6, u.font(P ? 24 : 20, 500), C.dim, 'center'); u.text(l2, x + cw / 2, y + ch * 0.6 + (P ? 36 : 30), u.font(P ? 24 : 20, 500), C.dim, 'center'); };
+    card('pt_host', R.x, y0, 'HOST A ROOM', 'You choose the song, mode and difficulty.', 'You approve everyone who joins.');
+    card('pt_join', P ? R.x : R.x + cw + 24, P ? y0 + ch + 24 : y0, 'JOIN A ROOM', 'Type the host\'s 8 digit room code.', 'The song is sent to you automatically.');
+    u.button('pt_name', R.x, P ? y0 + 2 * ch + 48 - 0 : y0 + ch + 20, R.w, P ? 64 : 44, '✎  Your name: ' + this.myName() + (UI.xr ? '  (tap for a new one)' : ''), { size: P ? 26 : 19 });
+    const ny = P ? y0 + 2 * ch + 150 : y0 + ch + 100, nf = u.font(P ? 22 : 17, 500);
+    ['Everyone plays on their own device, so nobody lags.', 'Players connect directly to each other, which means they can see each other\'s', 'network address. Only join rooms run by people you know. The host approves every player.'].forEach((t, i) => u.text(t, UW / 2, ny + i * (P ? 32 : 26), nf, C.dim, 'center'));
+  },
+  drawKeys(u, R) {
+    const P = u.pt, g = u.g, cell = P ? 66 : 54, gap = P ? 8 : 8, tw = 8 * cell + 7 * gap, x0 = (UW - tw) / 2, y0 = R.y + (P ? 70 : 34);
+    u.text(this.msg, UW / 2, y0 - 12, u.font(P ? 28 : 24, 700), C.tx, 'center');
+    for (let i = 0; i < 8; i++) { const x = x0 + i * (cell + gap); u.rr(x, y0 + 8, cell, cell * 1.2, 12); g.fillStyle = 'rgba(255,255,255,0.08)'; g.fill(); u.text(this.input[i] || '', x + cell / 2, y0 + 8 + cell * 0.88, u.font(P ? 44 : 38, 800), C.cy, 'center'); }
+    const kw = P ? 170 : 96, kh = P ? 104 : 62, kg = P ? 14 : 10, kx = (UW - (3 * kw + 2 * kg)) / 2, ky = y0 + cell * 1.2 + (P ? 60 : 36);
+    ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'x', '0'].forEach((k, i) => { const col = k === '0' ? 1 : i % 3, row = k === '0' ? 3 : (i / 3) | 0; u.button('pt_key:' + k, kx + col * (kw + kg), ky + row * (kh + kg), kw, kh, k === 'x' ? '⌫' : k, { size: P ? 44 : 30, weight: 800 }); });
+    u.button('pt_leave', kx, ky + 4 * (kh + kg) + (P ? 6 : 0), 3 * kw + 2 * kg, P ? 78 : 50, 'Cancel', { size: P ? 28 : 20 });
+  },
+  drawRoom(u, R) {
+    const P = u.pt, g = u.g, host = this.role === 'host';
+    if (!P) {
+      const lw = 456, rx = R.x + lw + 28, rw = R.w - lw - 28;
+      this.cfgBlock(u, R.x, R.y, lw, host); this.roomBlock(u, rx, R.y, rw, R.b - 64 - 10);
+      if (host) u.button('pt_start', R.x, R.b - 64, lw, 64, this.prep ? 'GETTING EVERYONE READY…' : 'START FOR EVERYONE', { primary: true, size: 26, weight: 800, dis: !!this.prep });
+      else u.text(u.fit(this.syncMsg || this.miss || 'The host starts the song when everyone is ready', lw, u.font(19, 600)), R.x, R.b - 26, u.font(19, 600), this.miss ? C.gd : C.cy);
+      u.button('pt_leave', rx, R.b - 52, rw, 52, host ? 'Close room' : 'Leave room', { size: 20 });
+    } else {
+      const ty = R.y; u.button('pt_tab:room', R.x, ty, (R.w - 10) / 2, 60, 'ROOM  ·  ' + this.count() + '/' + PARTY_MAX, { size: 24, sel: this.tab === 'room' }); u.button('pt_tab:setup', R.x + (R.w + 10) / 2, ty, (R.w - 10) / 2, 60, 'GAME SETUP', { size: 24, sel: this.tab === 'setup' });
+      const bot = R.b - 100 - 14; if (this.tab === 'room') { this.roomBlock(u, R.x, ty + 74, R.w, bot - 74 - 70); u.button('pt_leave', R.x, bot - 62, R.w, 62, host ? 'Close room' : 'Leave room', { size: 24 }); } else this.cfgBlock(u, R.x, ty + 74, R.w, host);
+      if (host) u.button('pt_start', R.x, R.b - 100, R.w, 100, this.prep ? 'GETTING EVERYONE READY…' : 'START FOR EVERYONE', { primary: true, size: 34, weight: 800, dis: !!this.prep });
+      else u.text(u.fit(this.syncMsg || this.miss || 'Waiting for the host to start', R.w, u.font(26, 700)), UW / 2, R.b - 40, u.font(26, 700), this.miss ? C.gd : C.cy, 'center');
+    }
+  },
+  cfgBlock(u, x, y, w, host) {                                              // the game setup: editable for the host, a read-out for guests (plus each player's own view and rival style)
+    const P = u.pt, g = u.g, S = Settings, it = Library.items[Library.selected], cfg = host ? this.cfgNow() : (this.cfg || null);
+    u.label(host ? 'SONG  ·  tap the name to browse' : 'SONG  ·  chosen by the host', x + 2, y + 6); y += 16; const bh = P ? 70 : 54, ar = P ? 76 : 60;
+    if (host) {
+      u.button('pt_song:-1', x, y, ar, bh, '◀', { size: 24 }); u.button('pt_song:1', x + w - ar, y, ar, bh, '▶', { size: 24 });
+      u.button('pt_browse', x + ar + 8, y, w - 2 * ar - 16, bh, '', {}); u.text(u.fit(it ? it.name : 'none selected', w - 2 * ar - 40, u.font(P ? 26 : 21, 800)), x + w / 2, y + bh * 0.44, u.font(P ? 26 : 21, 800), C.tx, 'center', 'middle');
+      u.text(it && it.status === 'ready' ? Math.round(it.bpm) + ' BPM  ·  ' + fmtTime(it.dur) : 'not ready', x + w / 2, y + bh * 0.76, u.font(P ? 19 : 15, 500), C.dim, 'center', 'middle'); y += bh + 12;
+      y = u.modeBlock(x, y, w, { noJourney: true, noSub: true, cols: P ? 2 : 3, h: P ? 74 : 54, ls: P ? 26 : 20 }) + 2;
+      y = u.diffBlock(x, y + 8, w, { cols: 4, h: P ? 62 : 46, ls: P ? 24 : 19 }) + 2;
+    } else {
+      u.rr(x, y, w, P ? 150 : 116, 16); g.fillStyle = 'rgba(255,255,255,0.06)'; g.fill(); const have = cfg && Library.items.some(i => i.key === cfg.key);
+      u.text(u.fit(cfg && cfg.name ? cfg.name : 'No song picked yet', w - 30, u.font(P ? 30 : 24, 800)), x + 16, y + (P ? 46 : 38), u.font(P ? 30 : 24, 800), C.tx);
+      u.text(cfg ? (MODE_LABEL[cfg.mode] || '').split('  ·')[0] + '  ·  ' + (DIFFICULTIES[cfg.diff] || DIFFICULTIES[1]).name : '', x + 16, y + (P ? 88 : 72), u.font(P ? 24 : 19, 700), C.cy);
+      u.text(cfg && cfg.name ? (have ? '✓ You have this song' : 'It will be sent to you when the host starts') : '', x + 16, y + (P ? 126 : 100), u.font(P ? 21 : 16, 600), have ? C.ok : C.dim); y += (P ? 150 : 116) + 14;
+    }
+    y = this.choices(u, x, y + 4, w, P ? 62 : 44, 'YOUR VIEW', [['sview:chase', 'Chase', S.view === 'chase'], ['sview:cockpit', 'Cockpit', S.view === 'cockpit']]);
+    y = this.choices(u, x, y, w, P ? 62 : 44, 'RIVALS ON YOUR SCREEN', [['pt_view:ghost', 'Ghost ships', S.partyView !== 'tracks'], ['pt_view:tracks', 'Side tracks', S.partyView === 'tracks']]);
+    if (host && S.mode === 'drive') { const co = !!S.partyCoop, dn = this.names[S.partyDriver | 0] || this.names[0]; u.label('DRIVE-BY TEAMWORK', x + 2, y); y += 12; u.chip('pt_coop', x, y, co ? (w - 8) * 0.5 : w, P ? 62 : 44, co ? 'Co-op: team up' : 'Race: everyone drives', '', co, { ls: P ? 24 : 18 }); if (co) u.chip('pt_driver', x + (w - 8) * 0.5 + 8, y, (w - 8) * 0.5, P ? 62 : 44, 'Driver: ' + dn, '', false, { ls: P ? 24 : 18 }); y += (P ? 62 : 44) + 10; }
+    return y;
+  },
+  roomBlock(u, x, y, w, bot) {
+    const P = u.pt, g = u.g, host = this.role === 'host', mid = x + w / 2;
+    // code / status card
+    const ch = host ? (P ? 160 : 98) : (P ? 110 : 70);
+    u.rr(x, y, w, ch, 18); g.fillStyle = 'rgba(255,255,255,0.06)'; g.fill();
+    if (host) { u.text(this.code.slice(0, 4) + '  ' + this.code.slice(4), mid, y + (P ? 82 : 56), u.font(P ? 72 : 52, 900), C.gd, 'center'); u.text('ROOM CODE', mid, y + (P ? 32 : 22), u.font(P ? 20 : 14, 700), C.dim, 'center'); u.text(u.fit(this.locked ? 'Room locked: nobody new can join' : this.msg, w - 20, u.font(P ? 22 : 15, 600)), mid, y + ch - (P ? 20 : 12), u.font(P ? 22 : 15, 600), this.locked ? C.gd : this.st === 'error' ? C.red : C.ok, 'center'); }
+    else { this.wrapText(u, this.msg, x + 16, y + (P ? 40 : 28), w - 32, u.font(P ? 26 : 19, 700), this.st === 'error' ? C.red : C.ok, P ? 34 : 24, 3); }
+    y += ch + 10;
+    if (host) { const bw = (w - 8) / 2, bh = P ? 56 : 38; u.chip('pt_lock', x, y, bw, bh, this.locked ? '🔒 Locked' : '🔓 Open', '', this.locked, { ls: P ? 22 : 16 }); u.chip('pt_auto', x + bw + 8, y, bw, bh, this.auto ? 'Auto-accept: ON' : 'Approve each', '', this.auto, { ls: P ? 22 : 16 }); y += bh + 10; }
+    // join requests waiting for the host
+    if (host) for (const q of this.pending.slice(0, 3)) { const rh = P ? 70 : 46; u.rr(x, y, w, rh, 14); g.fillStyle = 'rgba(255,211,77,0.14)'; g.fill(); u.text(u.fit(q.n + ' wants to join', w - (P ? 250 : 190), u.font(P ? 24 : 17, 700)), x + 14, y + rh / 2 + 1, u.font(P ? 24 : 17, 700), C.gd, 'left', 'middle'); const bw = P ? 108 : 78; u.button('pt_deny:' + q.g, x + w - 8 - bw, y + 5, bw, rh - 10, 'No', { size: P ? 22 : 16, r: 10 }); u.button('pt_allow:' + q.g, x + w - 16 - bw * 2, y + 5, bw, rh - 10, 'Let in', { size: P ? 22 : 16, r: 10, primary: true }); y += rh + 6; }
+    // players
+    const ids = Object.keys(this.names).map(Number).sort((a, b) => a - b), rh = P ? 66 : 36, fit = Math.max(1, Math.floor((bot - y - (P ? 40 : 30)) / (rh + 5)));
+    u.label('PLAYERS  ' + ids.length + ' / ' + PARTY_MAX, x + 2, y + (P ? 16 : 12)); y += P ? 28 : 20;
+    ids.slice(0, fit).forEach((i) => {
+      u.rr(x, y, w, rh, 12); g.fillStyle = i === this.pid ? 'rgba(25,227,255,0.14)' : 'rgba(255,255,255,0.07)'; g.fill(); g.beginPath(); g.arc(x + (P ? 28 : 20), y + rh / 2, P ? 10 : 7, 0, 7); g.fillStyle = PARTY_COL[i % PARTY_COL.length]; g.fill();
+      const sy = host && this.prep ? this.prep.st[i] : null, kb = host && i !== 0 ? (P ? 56 : 34) + 8 : 0;
+      u.text(u.fit((this.names[i] || '?') + (i === this.pid ? ' (you)' : '') + (i === 0 ? '  ★' : ''), w * (P ? 0.52 : 0.5) - (P ? 20 : 40), u.font(P ? 26 : 17, i === this.pid ? 800 : 600)), x + (P ? 52 : 38), y + rh / 2 + 1, u.font(P ? 26 : 17, i === this.pid ? 800 : 600), C.tx, 'left', 'middle');
+      const stx = i === 0 || !sy ? (host && i !== 0 ? 'In room' : '') : this.syncText(sy); if (stx) u.text(stx, x + w - 12 - kb, y + rh / 2 + 1, u.font(P ? 21 : 14, 700), sy && sy.s === 'ready' ? C.ok : sy && sy.s === 'fail' ? C.red : sy ? C.cy : C.dim, 'right', 'middle');
+      if (sy && (sy.s === 'send' || sy.s === 'recv' || sy.s === 'scan')) { u.rr(x + 12, y + rh - 8, w - 24 - kb, 4, 2); g.fillStyle = 'rgba(255,255,255,0.12)'; g.fill(); u.rr(x + 12, y + rh - 8, Math.max(4, (w - 24 - kb) * sy.pct / 100), 4, 2); g.fillStyle = C.cy; g.fill(); }
+      if (kb) u.button('pt_kick:' + i, x + w - (P ? 56 : 34) - 6, y + 4, P ? 56 : 34, rh - 8, '✕', { size: P ? 22 : 14, r: 10 });
+      y += rh + 5;
+    });
+    if (ids.length > fit) u.text('+ ' + (ids.length - fit) + ' more', x + 4, y + 14, u.font(P ? 20 : 14, 600), C.dim);
+    if (P) { const t = ['Players can see each other\'s network address.', 'Only let in people you know.']; t.forEach((s, k) => u.text(s, x + 2, bot + 2 + k * 24, u.font(18, 500), C.dim)); }
+  },
+  wrapText(u, t, x, y, w, font, col, lh, maxLines) {                       // plain word wrap for status messages
+    const g = u.g; g.font = font; const words = String(t || '').split(' '); let line = '', n = 0; for (const wd of words) { const tt = line ? line + ' ' + wd : wd; if (g.measureText(tt).width > w && line) { u.text(line, x, y + n * lh, font, col); n++; line = wd; if (n >= maxLines) return; } else line = tt; } if (line) u.text(line, x, y + n * lh, font, col);
+  },
+  // ---------- in the race: a compact live leaderboard with score bars and the gap to the next place ----------
+  hudDraw(g) {
+    const s = this.standings(); if (s.length < 2) return; const me = s.findIndex(o => o.you); let show = s.slice(0, 4); if (me >= 4) show[3] = s[me];
+    const lead = Math.max(1, s[0].sc), rh = 23, w = 232, x = 8, y = 6, hh = 22; g.save(); g.textBaseline = 'middle';
+    UI.rr.call({ g }, x, y, w, hh + 6 + show.length * rh + 4, 10); g.fillStyle = 'rgba(8,4,28,0.66)'; g.fill();
+    g.font = UI.font(13, 800); g.textAlign = 'left'; g.fillStyle = '#98a1cc'; g.fillText('PARTY', x + 10, y + 13); g.textAlign = 'right'; g.fillStyle = me === 0 ? '#ffd34d' : '#fff'; g.fillText(me >= 0 ? 'YOU ARE ' + (me + 1) + ' / ' + s.length : s.length + ' PLAYERS', x + w - 10, y + 13);
+    show.forEach((o, k) => {
+      const yy = y + hh + 4 + k * rh, cy = yy + rh / 2; if (o.you) { UI.rr.call({ g }, x + 4, yy, w - 8, rh - 2, 7); g.fillStyle = 'rgba(25,227,255,0.16)'; g.fill(); }
+      g.globalAlpha = 0.28; g.fillStyle = o.col; g.fillRect(x + 28, yy + rh - 5, Math.max(2, (w - 40) * o.sc / lead), 3); g.globalAlpha = 1;
+      g.font = UI.font(14, 900); g.fillStyle = o.col; g.textAlign = 'left'; g.fillText(String(o.rank), x + 10, cy); g.font = UI.font(14, o.you ? 900 : 600); g.fillStyle = o.you ? '#fff' : '#cfe'; g.fillText((o.n || '').slice(0, 9), x + 28, cy - 1); g.textAlign = 'right'; g.fillText((o.f ? '✓ ' : '') + o.sc.toLocaleString(), x + w - 10, cy - 1);
+    });
+    if (me >= 0 && s.length > 1) { const d = me === 0 ? s[0].sc - s[1].sc : s[me - 1].sc - s[me].sc, tx = me === 0 ? '+' + d.toLocaleString() + ' ahead of ' + s[1].n.slice(0, 8) : '−' + d.toLocaleString() + ' to catch ' + s[me - 1].n.slice(0, 8); g.font = UI.font(13, 700); g.textAlign = 'left'; g.fillStyle = me === 0 ? '#46ffa0' : '#ffd34d'; g.fillText(tx, x + 10, y + hh + 8 + show.length * rh + 12); }
+    g.restore();
+  },
+  // ---------- rankings ----------
+  drawResults(u) {
+    const P = u.pt, g = u.g, s = this.standings(), R = u.frame('Rankings', this.round ? 'Waiting for everyone to finish…' : 'Final scores', 'pt_back'), host = this.role === 'host';
+    const bh = P ? 84 : 58, by = R.b - bh, n = Math.max(1, Math.min(8, s.length)), avail = by - 14 - (R.y + 6), rh = Math.min(P ? 110 : 62, Math.floor((avail - (n - 1) * 8) / n)), top = Math.max(1, s[0] ? s[0].sc : 1), medal = ['🥇', '🥈', '🥉'];
+    s.slice(0, 8).forEach((o, k) => {
+      const y = R.y + 6 + k * (rh + 8), big = k === 0; u.rr(R.x, y, R.w, rh, 16); g.fillStyle = o.you ? 'rgba(25,227,255,0.18)' : 'rgba(255,255,255,0.07)'; g.fill(); if (big) { g.lineWidth = 3; g.strokeStyle = '#ffd34d'; g.stroke(); }
+      g.globalAlpha = 0.18; g.fillStyle = o.col; u.rr(R.x, y, Math.max(24, R.w * o.sc / top), rh, 16); g.fill(); g.globalAlpha = 1;
+      const fs = P ? 30 : 24, ss = P ? 20 : 15; u.text(k < 3 && o.f ? medal[k] : String(o.rank), R.x + (P ? 44 : 40), y + rh / 2 + 2, u.font(P ? 40 : 30, 900), o.col, 'center', 'middle');
+      u.text(u.fit(o.n + (o.you ? '  (you)' : ''), R.w * (P ? 0.5 : 0.4), u.font(fs, o.you ? 800 : 700)), R.x + (P ? 88 : 80), y + rh / 2 - (P ? 12 : 9), u.font(fs, o.you ? 800 : 700), C.tx, 'left', 'middle');
+      u.text(o.f ? (o.fl ? 'out' : 'finished') + '  ·  ' + o.ac + '%  ·  combo ' + o.cb : 'still playing…', R.x + (P ? 88 : 80), y + rh / 2 + (P ? 22 : 17), u.font(ss, 600), o.f ? C.dim : C.gd, 'left', 'middle');
+      u.text(o.sc.toLocaleString(), R.x + R.w - 18, y + rh / 2 + 1, u.font(P ? 38 : 30, 800), C.tx, 'right', 'middle');
+    });
+    if (host) { u.button('pt_next', R.x, by, (R.w - 10) * 0.6, bh, 'Next song  ▸  back to the room', { primary: true, size: P ? 26 : 20, weight: 800 }); u.button('pt_lobby', R.x + (R.w - 10) * 0.6 + 10, by, (R.w - 10) * 0.4, bh, 'Room', { size: P ? 26 : 20 }); }
+    else u.button('pt_lobby', R.x, by, R.w, bh, 'Back to the room', { primary: true, size: P ? 28 : 22, weight: 800 });
+  }
+});
 
 // ===== PILOT MODE in passthrough: the cockpit view with your real room around you =====
 // What a pilot needs when the room is the sky: see through the cockpit, an attitude display at eye level (so you never look down to know which way is up),
@@ -7702,7 +8170,7 @@ const Room = {
 // So there is no lag to feel on either side: the viewer is just a delayed audience. The link is a WebRTC data channel (peer to peer, no game server);
 // a six digit room code is swapped through a tiny public relay (ntfy.sh) only to set the connection up.
 const Spectate = {
-  relay: (() => { try { return new URLSearchParams(location.search).get('relay') || 'https://ntfy.sh'; } catch (e) { return 'https://ntfy.sh'; } })(),
+  relay: safeRelay(),
   ice: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }],
   role: null, st: 'idle', code: '', input: '', msg: '', pc: null, dc: null, es: null, last: null, tx: 0, prevState: '', hostName: '', prev: null, miss: '', sessId: 0,
   digits() { let s = ''; for (let i = 0; i < 6; i++) s += (Math.random() * 10) | 0; return s; },
@@ -7944,12 +8412,12 @@ async function init() {
     tp.addEventListener('pointerdown', (e) => { e.stopPropagation(); Input.push('pause'); });
     td.addEventListener('pointerdown', (e) => { e.stopPropagation(); Input.push('overdrive'); });
     $('rotgo').addEventListener('click', () => { rotOK = true; rot.style.display = 'none'; });
-    const chk = () => { rot.style.display = (!rotOK && innerHeight > innerWidth * 1.05 && !XR.session) ? 'flex' : 'none'; };
+    const chk = () => { rot.style.display = 'none'; };   // portrait is supported now
     addEventListener('resize', chk); addEventListener('orientationchange', chk); chk();
     const tf = $('tfs'), de = document.documentElement, reqFS = de.requestFullscreen || de.webkitRequestFullscreen, exitFS = document.exitFullscreen || document.webkitExitFullscreen, isFS = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
     if (reqFS && !window.navigator.standalone) {                 // iPhone Safari has no fullscreen API for pages (the Add to Home Screen route is fullscreen already), so the button only appears where it can work
       tf.style.display = 'block'; window.__fsBtn = tf;
-      tf.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); try { if (isFS()) exitFS.call(document); else { const p = reqFS.call(de); if (p && p.then) p.then(() => { try { screen.orientation.lock('landscape').catch(() => {}); } catch (e2) {} }).catch(() => {}); } } catch (e3) {} });
+      tf.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); try { if (isFS()) exitFS.call(document); else { const p = reqFS.call(de); if (p && p.then) p.then(() => {  }).catch(() => {}); } } catch (e3) {} });
       const sync = () => { tf.textContent = isFS() ? '✕' : '⛶'; }; document.addEventListener('fullscreenchange', sync); document.addEventListener('webkitfullscreenchange', sync);
     }
     const tfi = $('tfire'); tfi.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); Input.fireHeld = true; Input.push('fire', {}); });
@@ -7987,7 +8455,7 @@ async function handleFiles(files) {
 }
 
 function onResize() {
-  const w = innerWidth, h = innerHeight; if (XR.session) return;
+  const w = innerWidth, h = innerHeight; UI.applyShape(); if (XR.session) return;
   renderer.setSize(w, h, false); glEl.style.width = w + 'px'; glEl.style.height = h + 'px';
   const asp = w / Math.max(1, h); camera.aspect = asp;
   baseFov = asp >= 1.3 ? 68 : (2 * Math.atan(Math.tan(42.5 * Math.PI / 180) / asp)) * 180 / Math.PI;
@@ -8020,13 +8488,13 @@ async function enterVR(mode) {
 }
 function onXRStart() {
   const s = renderer.xr.getSession(); XR.session = s; XR.rateSet = false; XR.rate = 0; XR.needRecenter = true;
-  Input.startXR(s); UI.xr = true; UI.dirty = true; Gov.fovea = 0.5; applyQuality(); MR.start(s);
+  Input.startXR(s); UI.xr = true; UI.applyShape(); UI.dirty = true; Gov.fovea = 0.5; applyQuality(); MR.start(s);
   s.addEventListener('visibilitychange', () => { if (s.visibilityState !== 'visible') doPause(); });
   const ref = renderer.xr.getReferenceSpace(); if (ref && ref.addEventListener) ref.addEventListener('reset', () => { XR.needRecenter = true; });
   if (Game.state === 'menu' && UI.screen !== 'home' && UI.screen !== 'settings') UI.set('home');
 }
 function onXREnd() {
-  XR.session = null; Input.stopXR(); MR.stop(); UI.xr = false; UI.dirty = true;
+  XR.session = null; Input.stopXR(); MR.stop(); UI.xr = false; UI.applyShape(); UI.dirty = true;
   R.world.position.set(0, 0, 0); R.world.rotation.y = 0; VRUI.setVisible(false); VRUI.cursor.visible = false;
   doPause(); onResize();
 }
