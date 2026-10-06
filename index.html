@@ -98,7 +98,7 @@ const DIFFICULTIES = [
 const DEFAULT_SETTINGS = {
   difficulty: 1, speed: 1, control: 'point', ctlv: 2, flight: true, hand: 'right', sens: 1,
   vignette: true, haptics: 'full', hitVol: 0.6, musicVol: 0.9, offsetMs: 0,
-  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: false, mrHand: false, mrV3: true, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: true, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
+  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: false, mrHand: false, mrV3: true, mrFloorOff: 0, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: true, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
   quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
 };
 function applyModeView() {                       // each mode family remembers its own view; Drive-by defaults to the cockpit
@@ -6015,6 +6015,7 @@ const MR_ROWS = [
   { k: 'mrWorld', label: 'Virtual world strength', min: 0, max: 1, step: 0.05, fmt: v => Math.round(v * 100) + '%' },
   { k: 'mrStyle', label: 'Camera look', opts: ['clear', 'neon', 'crt'], names: ['Clear', 'Neon tint', 'Retro CRT'] },
   { k: 'mrDim', label: 'Room darkening', min: 0, max: 0.9, step: 0.05, fmt: v => Math.round(v * 100) + '%' },
+  { k: 'mrFloorOff', label: 'Floor height (track)', min: -0.8, max: 1.2, step: 0.1, fmt: v => (v > 0 ? '+' : '') + v.toFixed(1) + ' m' },
   { k: 'mrBright', label: 'Effect brightness', min: 0.5, max: 1.5, step: 0.1, fmt: v => Math.round(v * 100) + '%' },
   { k: 'mrPulse', label: 'Room pulses to beat', bool: true },
   { k: 'mrWall', label: 'Walls light up', opts: ['off', 'rings', 'grid'], names: ['Off', 'Rings', 'Rings + grid'] },
@@ -6917,7 +6918,7 @@ const MR = {
     B.uDim.value = Math.max(clamp(S.mrDim * clamp(0.3 + v * 1.2, 0, 1), 0, 0.92) * (full ? 0 : 1), clamp((1 - R.lum) * 0.92, 0, 0.92));
     B.uWash.value = pul ? clamp(0.16 * kick + 0.05 * (g.intensity || 0), 0, 0.3) : 0;
     B.uStyle.value = S.mrStyle === 'neon' ? 1 : S.mrStyle === 'crt' ? 2 : 0; B.uTint.value = 1;
-    B.uKickAge.value = this.ringAge; B.uFlip.value = S.mrFlip ? 0 : 1; B.uFmt.value = this.depthFmt; B.uHead.value.copy(Input.head); B.uFloorY.value = (MR.place ? MR.place.y : (XR.refType === 'local' ? Input.head.y - 1.6 : 0));
+    B.uKickAge.value = this.ringAge; B.uFlip.value = S.mrFlip ? 0 : 1; B.uFmt.value = this.depthFmt; B.uHead.value.copy(Input.head); B.uFloorY.value = (MR.place ? MR.place.y : R.world.position.y);
     const haveD = !!this.depthTex;
     const lowQ = R.quality >= 2;                                         // when the headset is struggling, the depth effects thin out first
     B.uEdge.value = (S.mrEdge && haveD && !lowQ) ? 1 : 0; B.uWall.value = (haveD && S.mrWall !== 'off') ? (S.mrWall === 'grid' && !lowQ ? 2 : 1) : 0;
@@ -7525,14 +7526,19 @@ function pickFrameRate(s) {
   else XR.rate = s.frameRate || 72;
   XR.rates = rates;
 }
+function floorY() {          // where the real floor is, in the headset's own space; a boundary-less or 'stationary' Quest can report a floor at eye height, so a floor that close to the head is not believed
+  const h = Input.head.y; let f = XR.refType === 'local' ? h - 1.6 : 0;
+  if (XR.refType === 'local-floor' && h < 0.6) { f = h - 1.4; if (!XR.floorWarn) { XR.floorWarn = true; UI.toast('Floor looked too high - adjusted. Fine tune it in Settings > Passthrough'); } }
+  return f + (Settings.mrFloorOff || 0);
+}
 function recenter() {
   if (!XR.session || !Input.headOK) return;
   const yaw = Input.headYaw(), w = R.world;
   if (MR.on && MR.place) { w.position.set(MR.place.x, MR.place.y, MR.place.z); w.rotation.y = MR.place.yaw; R.hy0 = clamp(Input.head.y - MR.place.y, 0.7, 2.1); }          // a placed track starts where you pointed and runs away from you
   else {
-  w.position.set(Input.head.x, XR.refType === 'local' ? Input.head.y - 1.6 : 0, Input.head.z);
+  const fy = floorY(); w.position.set(Input.head.x, fy, Input.head.z);
   if (yaw !== null) w.rotation.y = yaw;
-  R.hy0 = clamp(Input.head.y - (XR.refType === 'local' ? Input.head.y - 1.6 : 0), 0.7, 2.1);
+  R.hy0 = clamp(Input.head.y - fy, 0.7, 2.1);
   }
   Input.recenterLean(); placePanel(yaw !== null ? yaw : w.rotation.y);
 }
