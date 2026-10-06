@@ -98,7 +98,7 @@ const DIFFICULTIES = [
 const DEFAULT_SETTINGS = {
   difficulty: 1, speed: 1, control: 'point', ctlv: 2, flight: true, hand: 'right', sens: 1,
   vignette: true, haptics: 'full', hitVol: 0.6, musicVol: 0.9, offsetMs: 0,
-  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: false, mrHand: false, mrV3: true, mrFloorOff: 0, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: true, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
+  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: false, mrHand: false, mrV3: true, mrDepth: false, mrFloorOff: 0, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: true, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
   quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
 };
 function applyModeView() {                       // each mode family remembers its own view; Drive-by defaults to the cockpit
@@ -149,7 +149,7 @@ function loadSettings() {
   Profile.load();
   try { const o = JSON.parse(Store.get('dmtsurf.settings') || '{}'); if (typeof o.haptics === 'boolean') { o.haptics = o.haptics ? 'full' : 'off'; Store.set('dmtsurf.settings', JSON.stringify(o)); } } catch (e) {}
   try { Object.assign(Settings, JSON.parse(Store.get('dmtsurf.settings') || '{}')); } catch (e) {}
-  if (!Settings.mrV3) { Settings.mrOcc = false; Settings.mrHand = false; Settings.mrV3 = true; try { Store.set('dmtsurf.settings', JSON.stringify(Settings)); } catch (e) {} }          // Quest 3: depth hiding and hand glow start off until they are proven on your headset
+  if (!Settings.mrV3) { Settings.mrDepth = false; Settings.mrOcc = false; Settings.mrHand = false; Settings.mrV3 = true; try { Store.set('dmtsurf.settings', JSON.stringify(Settings)); } catch (e) {} }          // Quest 3: depth hiding and hand glow start off until they are proven on your headset
   if ((Settings.ctlv | 0) < 2) { Settings.control = 'point'; Settings.ctlv = 2; saveSettings(); }          // v7: pointing is the default (grip is still in Settings)
   if ((Settings.sndv | 0) < 1) { Settings.collectSound = false; Settings.sndv = 1; saveSettings(); }          // v5.9: the gem pluck is off by default (it is still one tap away in Settings)
   applyModeView();
@@ -6015,6 +6015,7 @@ const MR_ROWS = [
   { k: 'mrWorld', label: 'Virtual world strength', min: 0, max: 1, step: 0.05, fmt: v => Math.round(v * 100) + '%' },
   { k: 'mrStyle', label: 'Camera look', opts: ['clear', 'neon', 'crt'], names: ['Clear', 'Neon tint', 'Retro CRT'] },
   { k: 'mrDim', label: 'Room darkening', min: 0, max: 0.9, step: 0.05, fmt: v => Math.round(v * 100) + '%' },
+  { k: 'mrDepth', label: 'Room depth (beta)', bool: true },
   { k: 'mrFloorOff', label: 'Floor height (track)', min: -0.8, max: 1.2, step: 0.1, fmt: v => (v > 0 ? '+' : '') + v.toFixed(1) + ' m' },
   { k: 'mrBright', label: 'Effect brightness', min: 0.5, max: 1.5, step: 0.1, fmt: v => Math.round(v * 100) + '%' },
   { k: 'mrPulse', label: 'Room pulses to beat', bool: true },
@@ -6359,12 +6360,12 @@ const UI = {
       this.text('Start with  Mode: Play, view: Cockpit.  Flight on lets you climb: tilt the steering hand up, push a thumbstick up, or stand up (option above).', 36, 470, this.font(17, 500), C.dim);
       this.button('mrback', 330, 560, 364, 56, 'Done', { primary: true, size: 26, weight: 800 }); return;
     }
-    this.rowsBlock(MR_ROWS, 8, 112, 470, 34, 40);
-    this.button('mrplace', 34, 446, 300, 50, MR.place ? 'Move the track' : 'Place the track', { size: 22, dis: !MR.on });
-    this.button('mrclear', 344, 446, 220, 50, 'Reset track', { size: 22, dis: !MR.place });
-    this.button('mrq', 574, 446, 416, 50, MR.on ? 'World now:  ' + (MR.quick ? 'FULL VR' : 'PASSTHROUGH') + '  (tap)' : 'Quick switch (in a session)', { size: 21, dis: !MR.on });
-    this.text('Camera look tints / scans the passthrough (hides Quest 2 grain).  Walls, edges and hiding need room depth.', 36, 520, this.font(16, 500), C.dim); this.text('Both thumbsticks together: passthrough <> full VR.   Hands only: pinch both hands to pause.   Flip depth image if edges look upside-down.', 36, 542, this.font(16, 500), C.dim);
-    this.button('mrback', 330, 560, 364, 56, 'Done', { primary: true, size: 26, weight: 800 });
+    this.rowsBlock(MR_ROWS, 9, 112, 470, 34, 40);
+    this.button('mrplace', 34, 474, 300, 44, MR.place ? 'Move the track' : 'Place the track', { size: 22, dis: !MR.on });
+    this.button('mrclear', 344, 474, 220, 44, 'Reset track', { size: 22, dis: !MR.place });
+    this.button('mrq', 574, 474, 416, 44, MR.on ? 'World now:  ' + (MR.quick ? 'FULL VR' : 'PASSTHROUGH') + '  (tap)' : 'Quick switch (in a session)', { size: 21, dis: !MR.on });
+    this.text(MR.on ? MR.dbg() : 'Camera look tints the passthrough.  Room depth is off by default (restart MR to change).', 36, 540, this.font(15, 500), C.dim);
+    this.button('mrback', 330, 566, 364, 50, 'Done', { primary: true, size: 26, weight: 800 });
   },
 
   pause() {
@@ -6839,8 +6840,14 @@ const MR = {
   // ---------- session ----------
   supported() { return !!(navigator.xr && navigator.xr.isSessionSupported); },
   probe() { if (!this.supported()) return; navigator.xr.isSessionSupported('immersive-ar').then((ok) => { this.arOK = !!ok; UI.arOK = !!ok; UI.dirty = true; if (ok && !Store.get('dmtsurf.mrHint')) { Store.set('dmtsurf.mrHint', '1'); setTimeout(() => { try { UI.toast('Passthrough is available here: try the MIXED button'); } catch (e) {} }, 4000); } }).catch(() => {}); },
+  dbg() {      // one line of facts for working out what a headset is doing
+    const s = this.session, en = s && s.enabledFeatures ? Array.from(s.enabledFeatures).join(' ') : '?', w = R.world.position;
+    return 'ref ' + XR.refType + '  head y ' + Input.head.y.toFixed(2) + '  world y ' + w.y.toFixed(2) + '  hy0 ' + R.hy0.toFixed(2) + '  depth ' + (this.feat.depth ? 'on' : 'off') + '  blend ' + (s ? s.environmentBlendMode : '-') + '  [' + en + ']';
+  },
   sessionInit() {
-    const opt = ['local-floor', 'hand-tracking', 'hit-test', 'anchors', 'depth-sensing'];
+    const opt = ['local-floor', 'hand-tracking', 'hit-test', 'anchors'];
+    if (!Settings.mrDepth) return { requiredFeatures: ['local'], optionalFeatures: opt };          // Quest 3: asking for depth sensing changes how the headset composites the scene, so it is opt-in
+    opt.push('depth-sensing');
     return { requiredFeatures: ['local'], optionalFeatures: opt, depthSensing: { usagePreference: ['gpu-optimized', 'cpu-optimized'], dataFormatPreference: ['float32', 'luminance-alpha'] } };
   },
   start(session) {
