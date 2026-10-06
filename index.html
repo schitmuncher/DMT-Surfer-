@@ -99,7 +99,7 @@ const DEFAULT_SETTINGS = {
   difficulty: 1, speed: 1, control: 'point', ctlv: 2, flight: true, hand: 'right', sens: 1,
   vignette: true, haptics: 'full', hitVol: 0.6, musicVol: 0.9, offsetMs: 0,
   mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: false, mrHand: false, mrV3: true, mrV4: true, mrTunnel: true, mrTunnelW: 1, mrDepth: false, mrFloorOff: 0, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: false, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true, gtrLat: 0, chPart: 'guitar',
-  quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', tiltAssist: 1, partyView: 'ghost', skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
+  quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', tiltAssist: 1, partyView: 'ghost', partyCoop: false, partyDriver: 0, skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
 };
 function applyModeView() {                       // each mode family remembers its own view; Drive-by defaults to the cockpit
   const g = Settings.mode === 'drive' ? 'D' : 'O'; if (g === Settings.vgrp) return;
@@ -851,14 +851,19 @@ const AudioEng = {
     this._tone(90, 0.28, 'sawtooth', 0.55); this._tone(55, 0.35, 'sine', 0.6);
   },
   // a sub-bass drop (with a breath of noise) when a nightmare scene opens
-  pew(side) {                                              // a pistol shot: a quick falling zap with a crack of noise
+  pew(side, on) {                                          // a pistol shot: a quick falling zap with a crack of noise (brighter and a touch louder when it lands on the beat)
     if (!this.ctx || this.ctx.state !== 'running') return;
-    const c = this.ctx, t = c.currentTime, o = c.createOscillator(), g = c.createGain(), f0 = side ? 1250 : 1050;
+    const c = this.ctx, t = c.currentTime, o = c.createOscillator(), g = c.createGain(), f0 = (side ? 1250 : 1050) * (on ? 1.5 : 1);
     o.type = 'square'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(180, t + 0.11);
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.11, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
     const dst = this.dest(); o.connect(g); g.connect(dst); o.start(t); o.stop(t + 0.16);
     const n = c.createBufferSource(), nb = c.createBuffer(1, c.sampleRate * 0.05, c.sampleRate), d = nb.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2);
     const ng = c.createGain(); ng.gain.value = 0.12; n.buffer = nb; n.connect(ng); ng.connect(dst); n.start(t);
+  },
+  orbFire() {                                              // a gunner lobs an orb: a rising warble you can place by ear
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const c = this.ctx, t = c.currentTime, o = c.createOscillator(), g = c.createGain(); o.type = 'sawtooth'; o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(620, t + 0.28);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32); o.connect(g); g.connect(this.dest()); o.start(t); o.stop(t + 0.34);
   },
   boom() {
     if (!this.ctx || this.ctx.state !== 'running') return;
@@ -1128,7 +1133,7 @@ const Game = {
     this.corners = buildCorners(this.secs, this.secTurn, this.a, cm, this.speed);
     this.journey = Settings.mode === 'journey'; this.guitar = Settings.mode === 'guitar'; this.saber = Settings.mode === 'saber' || Settings.mode === 'punch'; this.weapon = Settings.mode === 'punch' ? 'fists' : 'sabers';
     this.rolls = (this.journey || this.saber || this.guitar || Settings.cSteady || Settings.cMotion) ? [] : buildRolls(seg.infos, this.corners, this.a ? this.a.dur : 0); this.roll = 0; this.rollWarn = null;
-    this.replay = false; this.drive = Settings.mode === 'drive'; this.shotQ.length = 0; this.shotGems = this.shotObs = this.shots = 0;
+    this.replay = false; this.drive = Settings.mode === 'drive'; this.shotQ.length = 0; this.shotGems = this.shotObs = this.shots = 0; this.proj = []; this.gunPlan = []; this.rhythm = this.bestRhythm = this.orbsShot = this.orbsHit = this.beatShots = this.shotHits = 0; this.orbT = 0; this.orbId = 0; this.coop = null;
     if (this.saber || this.guitar) this.corners = [];
     if (this.saber) {                                      // galactic horse: slice (or punch) the cubes as they arrive
       this.chart = generateSaberChart(this.a, diff, track.key, track.bs, this.weapon === 'fists'); this.walls = 0; this.energy = 60;
@@ -1146,7 +1151,7 @@ const Game = {
     this.flight = !!Settings.flight && !this.saber && !this.journey && !this.guitar; this.alt = 0;
     if (this.flight && this.chart.notes.length) { addAltLayer(this.chart, seg.infos, diff, track.key);
       for (const n of this.chart.notes) if (n.hi && this.rolls.some(e => n.t > e.t0 - 1.5 && n.t < e.t1 + 1.5)) n.hi = 0; }          // nothing floats high while the world is flipping or upside down
-    this.markStar(track.key); this.planBosses(seg.infos, track.key, diff);
+    this.markStar(track.key); this.planBosses(seg.infos, track.key, diff); this.planGunners(track.key, diff);
     if (!this.saber && !this.journey && !this.guitar && this.chart.notes.length) this.chart.maxScore = chartMax(this.chart);
     this.notes = this.chart.notes; this.buildRoadW(this.a);
     for (let i = 0; i < this.notes.length; i++) { this.notes[i].hit = HIT_NONE; this.notes[i].ri = i; }
@@ -1297,9 +1302,51 @@ const Game = {
     if (B.st === 'fight') { const w = b.strikes.find(x => x.on && !x.done && x.t > T - 0.15); if (w && w.t - T < 3.2) { let best = w.safe[0]; for (const l of w.safe) if (Math.abs(l - 2 - this.lat) < Math.abs(best - 2 - this.lat)) best = l; const df = best - 2 - this.lat; tele = { left: w.t - T, safeAll: w.safe, dir: Math.abs(df) < 0.45 ? 0 : df > 0 ? 1 : -1, wall: false, lane: best }; } }
     this.bossUI = { mode: B.st, name: B.name, hp: B.hp, hpMax: B.hpMax, flash: B.flash, k: B.k, age: B.age, dead: B.dead, first: B.first, tele, hits: B.hits, kills: this.bossKills, rage: B.rageT > 0 };
   },
+  planGunners(key, diff) {                                  // drive-by: some imps in the loud parts are gunners, each lobs an orb at you (aimed at your lane) a couple of seconds before it reaches you
+    this.gunPlan = []; this.proj = []; if (!this.drive || this.journey || !this.a) return;
+    const dd = clamp(diff | 0, 0, 3), pr = [0.08, 0.2, 0.32, 0.44][dd], rnd = mulberry32(hashStr(key || 'x') + 303); let last = -9;
+    for (const n of this.chart.notes) {
+      if (n.type !== NOTE_OBSTACLE || n.wall || n.t < 14 || n.t - last < 4.5) continue; if (curveAt(this.a, n.t) < 0.4 || rnd() > pr) continue;
+      if (this.bosses && this.bosses.some(b => n.t > b.t0 - 4 && n.t < b.t1 + 1)) continue;
+      n.gun = true; last = n.t; this.gunPlan.push({ n, t: n.t - 2.7, done: false });
+    }
+  },
+  launchOrb(from, d0, x0, flight, kind) {                    // an orb leaves d0 metres up the road at lateral x0 and arrives in `flight` s on the lane you were in when it was fired
+    const lane = clamp(Math.round(this.lat * 1.0), -2, 2) + (kind === 'boss' ? 0 : 0);
+    const p = { id: this.orbId++, t0: this.songT, t1: this.songT + flight, d0, x0, lane, dead: false, done: false, kind }; this.proj.push(p); this.emit({ k: 'orbFire', kind });
+    if (this.coop && this.coop.role === 'driver') Party.sendAll({ k: 'orb', id: p.id, fl: flight, d0, x0, lane, kind });
+  },
+  addOrb(m) {                                               // co-op gunner: the driver's game launched an orb, so it appears here too
+    if (this.proj.some(p => p.id === m.id)) return; const lag = 0.06;
+    this.proj.push({ id: m.id, t0: this.songT, t1: this.songT + Math.max(0.4, m.fl - lag), d0: m.d0, x0: m.x0, lane: m.lane, dead: false, done: false, kind: m.kind }); AudioEng.orbFire();
+  },
+  projTick(dt) {
+    const T = this.songT, dd = clamp(this.diff | 0, 0, 3), gun = this.coop && this.coop.role === 'gunner';
+    if (gun) { for (let i = this.proj.length - 1; i >= 0; i--) { const p = this.proj[i]; if (!p.done && T >= p.t1) { p.done = true; if (!p.dead && Math.abs(this.lat - p.lane) < 0.62) this.emit({ k: 'orbBurst', x: p.lane }); } if (T > p.t1 + 0.35) this.proj.splice(i, 1); } return; }
+    for (const q of this.gunPlan) { if (q.done || T < q.t) continue; q.done = true; if (q.n.hit !== HIT_NONE) continue; this.launchOrb(q.n, (q.n.t - T) * this.speed, q.n.lane - 2, 1.7 - 0.1 * dd, 'gun'); }
+    const B = this.boss;
+    if (B && B.st === 'fight' && dd >= 1) { this.orbT -= dt; if (this.orbT <= 0) { this.orbT = [9, 4.6, 3.6, 2.8][dd] * (B.rage ? 0.7 : 1); if (this.bosses && B.b.t1 - T > 3) this.launchOrb(null, BOSS_D, 0, 2.3, 'boss'); } } else this.orbT = Math.max(this.orbT, 2.5);
+    for (let i = this.proj.length - 1; i >= 0; i--) {
+      const p = this.proj[i];
+      if (!p.done && T >= p.t1) { p.done = true; if (!p.dead && Math.abs(this.lat - p.lane) < 0.62) { if (this.hurt('orb', this.lat)) this.orbsHit++; p.dead = true; this.emit({ k: 'orbBurst', x: p.lane }); } }
+      if (T > p.t1 + 0.35 || (p.dead && T > p.t0 + 4)) this.proj.splice(i, 1);
+    }
+  },
+  shootProj(p, pos, on) {                                    // a bolt found an orb
+    if (this.state !== 'playing' || p.dead || p.done) return false; p.dead = true; this.orbsShot++;
+    if (this.coop) { if (this.coop.role === 'gunner') Party.report({ k: 'ch', ty: 'o', id: p.id, on: on ? 1 : 0 }); else Party.sendAll({ k: 'orbx', id: p.id }); } this.score += Math.round(120 * this.mult); if (!this.odActive) this.od = Math.min(1, this.od + 0.015); AudioEng.hit(2, 'perfect');
+    this.rhythmHit(on); this.emit({ k: 'zap', hazard: true, x: pos.x, y: pos.y, z: pos.z, lane: 2 }); return true;
+  },
+  rhythmHit(on) {                                            // shots that land on the beat build a rhythm streak worth bonus points; sloppy ones cost half of it
+    this.shotHits++;
+    if (on) { this.rhythm++; this.beatShots++; if (this.rhythm > this.bestRhythm) this.bestRhythm = this.rhythm; this.score += Math.round(Math.min(20, this.rhythm) * 6 * this.mult); this.emit({ k: 'beatShot', n: this.rhythm }); }
+    else this.rhythm = this.rhythm >> 1;
+  },
+  onBeatNow() { const a = this.a; if (!a || !(a.bpm > 0)) return false; const g = 30 / a.bpm, e = (((this.songT - (a.phase || 0)) % g) + g) % g; return Math.min(e, g - e) < 0.055; },
   bossHit(n) {                                                // a bolt landed on the colossus
     const B = this.boss; if (!B || B.st !== 'fight' || this.state !== 'playing') return false;
-    B.hp = Math.max(0, B.hp - n * (this.odActive ? 2 : 1)); B.flash = 1; B.hits++; this.score += Math.round(15 * this.mult); this.emit({ k: 'bossHit', hp: B.hp / B.hpMax }); if (!B.rage && B.hp > 0 && B.hp <= B.hpMax * 0.5) { B.rage = true; B.rageT = 2.4; B.roar = 1; this.emit({ k: 'bossRage' }); }
+    if (this.coop && this.coop.role === 'gunner') Party.report({ k: 'ch', ty: 'b', n });
+    B.hp = Math.max(0, B.hp - n * (this.odActive ? 2 : 1)); this.rhythmHit(n > 1); B.flash = 1; B.hits++; this.score += Math.round(15 * this.mult); this.emit({ k: 'bossHit', hp: B.hp / B.hpMax }); if (!B.rage && B.hp > 0 && B.hp <= B.hpMax * 0.5) { B.rage = true; B.rageT = 2.4; B.roar = 1; this.emit({ k: 'bossRage' }); }
     if (B.hp <= 0) {
       B.st = 'dead'; B.dead = 0; this.bossKills++; this.score += Math.round(3000 * this.mult); this.energy = Math.min(100, this.energy + 25);
       if (this.odActive) this.odLeft = Math.min(OD_TIME * 2, this.odLeft + 3); else this.od = Math.min(1, this.od + 0.5);
@@ -1362,9 +1409,9 @@ const Game = {
     this.rwK = out;
   },
   fire(shot) {                                             // a pistol went off (flat click / tap / key, or a VR trigger): the renderer finds what it hit
-    if (this.state !== 'playing' || !this.drive) return false;
-    const now = performance.now(), s = shot.side | 0; if (now - this.lastFire[s] < 85) return false; this.lastFire[s] = now;
-    if (this.shotQ.length < 8) this.shotQ.push(shot); this.shots++; AudioEng.at = (typeof UI !== 'undefined' && UI.xr && Input.hands[s ? 'right' : 'left']) ? Input.hands[s ? 'right' : 'left'].o : null; AudioEng.pew(s); AudioEng.at = null; this.emit({ k: 'shoot', side: s }); return true;
+    if (this.state !== 'playing' || !this.drive || (this.coop && this.coop.role === 'driver')) return false;          // in co-op the driver only drives
+    const now = performance.now(), s = shot.side | 0; if (now - this.lastFire[s] < (this.odActive ? 48 : 85)) return false; this.lastFire[s] = now; shot.on = this.onBeatNow(); if (shot.on) this.emit({ k: 'beatTick' });
+    if (this.shotQ.length < 8) this.shotQ.push(shot); this.shots++; AudioEng.at = (typeof UI !== 'undefined' && UI.xr && Input.hands[s ? 'right' : 'left']) ? Input.hands[s ? 'right' : 'left'].o : null; AudioEng.pew(s, shot.on); AudioEng.at = null; this.emit({ k: 'shoot', side: s, on: shot.on }); return true;
   },
   skyBolt(e) {                                             // flight + a hand raised overhead: a bolt climbs from the hand and breaks the next high gem or hovering mine near your lane (bonus score, never a penalty)
     if (this.state !== 'playing' || !this.flight || this.saber || this.journey || this.drive || !MR.on || Settings.view !== 'cockpit') return false;
@@ -1378,11 +1425,12 @@ const Game = {
     else { this.shotGems++; this.gotNote(best, false, 1.3); }
     return true;
   },
-  shootNote(n, pos) {                                       // drive-by: a bolt found this note. Gems are collected from a distance, hazards are blown up
+  shootNote(n, pos, on) {                                       // drive-by: a bolt found this note. Gems are collected from a distance, hazards are blown up
+    if (this.coop && this.coop.role === 'gunner' && this.state === 'playing' && n.hit === HIT_NONE) Party.report({ k: 'ch', ty: 'n', t: n.t, lane: n.lane, on: on ? 1 : 0 });
     if (this.state !== 'playing' || n.hit !== HIT_NONE || n.type === NOTE_HOLD) return false;
     if (n.type === NOTE_OBSTACLE) { n.hit = HIT_GOT; this.shotObs++; this.score += Math.round(60 * this.mult); if (!this.odActive) this.od = Math.min(1, this.od + 0.012); AudioEng.hit(clamp(n.lane, 0, 4), 'perfect'); }
     else { this.shotGems++; this.gotNote(n, false, 0.8); }
-    this.emit({ k: 'zap', hazard: n.type === NOTE_OBSTACLE, x: pos.x, y: pos.y, z: pos.z, lane: n.lane });
+    this.rhythmHit(on); this.emit({ k: 'zap', hazard: n.type === NOTE_OBSTACLE, x: pos.x, y: pos.y, z: pos.z, lane: n.lane });
     return true;
   },
   // hold streaks: stay on the sliding path to bank ticks; leave it for too long and the streak drops
@@ -1489,7 +1537,7 @@ const Game = {
     const ratio = this.chart.maxScore + (this.cMax || 0) > 0 ? this.score / (this.chart.maxScore + (this.cMax || 0)) : 0;
     const acc = this.hits + this.misses > 0 ? this.hits / (this.hits + this.misses) : 0;
     let wr = new Set(), wh = new Set(); for (const n of this.notes) if (n.wall && n.t < this.songT) { wr.add(n.t); if (n.hit === HIT_STRUCK) wh.add(n.t); } this.wallsClean = wr.size - wh.size + (this.cWallsClean || 0); this.walls = Math.max(this.walls, wr.size) + (this.cWalls || 0);
-    this.result = { shotGems: this.shotGems, shotObs: this.shotObs, shots: this.shots, shields: this.shields, hurts: this.hurts, cornersOK: this.cornersOK, cornersAll: this.cornersAll, walls: this.walls, wallsClean: this.wallsClean, streaks: this.streaks, holdsTotal: (this.chart.holds || 0) + (this.cHolds || 0), tickPct: this.tickAll ? this.tickGot / this.tickAll : 1, score: this.score, ratio, grade: failed ? 'F' : gradeFor(ratio, acc), acc, maxCombo: this.maxCombo, hits: this.hits, misses: this.misses, golds: this.golds, perfects: this.perfects, struck: this.struck, total: this.chart.total + (this.cTotal || 0) };
+    this.result = { orbsShot: this.orbsShot | 0, bestRhythm: this.bestRhythm | 0, beatShots: this.beatShots | 0, shotAcc: this.shots ? this.shotHits / this.shots : 0, shotGems: this.shotGems, shotObs: this.shotObs, shots: this.shots, shields: this.shields, hurts: this.hurts, cornersOK: this.cornersOK, cornersAll: this.cornersAll, walls: this.walls, wallsClean: this.wallsClean, streaks: this.streaks, holdsTotal: (this.chart.holds || 0) + (this.cHolds || 0), tickPct: this.tickAll ? this.tickGot / this.tickAll : 1, score: this.score, ratio, grade: failed ? 'F' : gradeFor(ratio, acc), acc, maxCombo: this.maxCombo, hits: this.hits, misses: this.misses, golds: this.golds, perfects: this.perfects, struck: this.struck, total: this.chart.total + (this.cTotal || 0) };
     this.result.reward = Profile.reward(this.result, this); if (this.result.reward.ach.length) UI.toast('Achievement: ' + this.result.reward.ach.join(', '));
     const key = this.track.key + ':' + this.diff + (this.saber ? ':' + this.weapon : this.drive ? ':drive' : this.guitar ? ':gtr' : '');
     if (!failed && !this.journey && !Queue.run) this.newBest = saveScore(key, { score: this.score, grade: this.result.grade, acc, combo: this.maxCombo });
@@ -1514,7 +1562,7 @@ const Game = {
       if (tier > this.stk) { this.tierPop = 1; this.tierName = STREAK_NAMES[tier]; if (this.hellT > 0) this.hellT = Math.min(this.hellT, 0.8); this.emit({ k: 'tier', tier }); }
       if (cb === 0 && this.pc >= 35 && this.songT - (this.lastHell || -99) > 45) { this.lastHell = this.songT; this.hellDur = this.hellT = clamp(2.5 + this.pc * 0.03, 2.5, 5); this.emit({ k: 'hell', from: this.pc }); }      // only a long streak (35+) falling apart, and at most once in 45 s
       this.stk = tier; this.pc = cb; if (this.phrases && this.phrases.length) this.starTick();
-      if (this.drive) this.bossTick(dt);
+      if (this.drive) { this.bossTick(dt); this.projTick(dt); }
       if (this.hellT > 0) { this.hellT -= dt * (cb >= 5 ? 2.5 : 1); if (cb >= 12) this.hellT = 0; }
     } else if (this.state !== 'playing') { this.hellT = 0; }
     this.tierPop = Math.max(0, (this.tierPop || 0) - dt * 0.8); this.phrasePop = Math.max(0, (this.phrasePop || 0) - dt * 0.9);
@@ -3718,12 +3766,39 @@ const R = {
   evalS(a, d) { const x = clamp((d - SH_D0) / SH_H, 0, SH_N - 1.001), i = x | 0; return a[i] + (a[i + 1] - a[i]) * (x - i); },
 
 
+  orbFrame(g, dt, songT, speed, now, shots, sres, Yf, pulse) {          // gunner and boss orbs: glowing fireballs that fly at you down your lane; bolts can pop them
+    const P = this.orbPool || (this.orbPool = []), DV = this._dv;
+    while (P.length < 14) {
+      const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34, 1), new THREE.MeshBasicMaterial({ color: 0xff7a2a })), h = new THREE.Mesh(new THREE.SphereGeometry(0.75, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff3a10, transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending }));
+      m.add(h); m.visible = false; m.frustumCulled = false; this.rig.add(m); P.push(m);
+    }
+    let k = 0;
+    for (const p of g.proj) {
+      if (p.dead || p.done || k >= P.length) continue; const u = (songT - p.t0) / (p.t1 - p.t0); if (u < 0) continue;
+      const d = Math.max(0.3, p.d0 * (1 - u)), lat = p.x0 + (p.lane - p.x0) * smooth(clamp(u * 1.15, 0, 1)); this.pl(d, lat * LANE_W * g.roadK(songT), 1);
+      const x = this.qx, z = this.qz, y = 0.55 + Yf(d) + this.qy + 0.18 * Math.sin(now * 12 + k), m = P[k++], sc = (p.kind === 'boss' ? 2.1 : 1.35) * (0.9 + 0.25 * pulse);
+      m.visible = true; m.position.set(x, y, z); m.scale.setScalar(sc * (0.7 + 0.3 * Math.min(1, u * 4))); m.rotation.y += dt * 6; m.material.color.setRGB(1, 0.35 + 0.35 * Math.sin(now * 14) * 0.5 + 0.2, 0.12);
+      if (shots && d > 1.2) {
+        DV.c.set(x, y, z).applyMatrix4(this.rig.matrixWorld);
+        for (let s = 0; s < shots.length; s++) {
+          const sh = shots[s], R2 = sres[s]; let sc2;
+          if (sh.auto) { if (Math.abs(x - this.ship.position.x) > 0.9) continue; sc2 = d * 0.9; }
+          else { DV.a.copy(DV.c).sub(sh.o); const t = DV.a.dot(sh.d); if (t < 0.3) continue; const perp = DV.a.addScaledVector(sh.d, -t).length(), al = ((sh.flat ? 1.0 + t * 0.04 : 0.6 + t * 0.026) * (p.kind === 'boss' ? 1.6 : 1)) * (g.odActive ? 1.7 : 1); if (perp > al) continue; sc2 = perp / al * 0.9 + d * 0.003; }
+          if (sc2 < R2.sc) { R2.sc = sc2; R2.n = null; R2.p = p; R2.x = x; R2.y = y; R2.z = z; R2.wx = DV.c.x; R2.wy = DV.c.y; R2.wz = DV.c.z; }
+        }
+      }
+    }
+    for (; k < P.length; k++) P[k].visible = false;
+  },
+  notePos(n) { const g = Game, d = Math.max(0, (n.t - g.songT) * (g.speed || 20)); this.pl(d, (n.lane - 2) * LANE_W * g.roadK(n.t), 1); const v = new THREE.Vector3(this.qx, 0.5 + this.qy, this.qz).applyMatrix4(this.rig.matrix); return { x: v.x, y: v.y, z: v.z }; },
+  projPos(p) { const g = Game, u = clamp((g.songT - p.t0) / (p.t1 - p.t0), 0, 1), d = Math.max(0.3, p.d0 * (1 - u)), lat = p.x0 + (p.lane - p.x0) * smooth(clamp(u * 1.15, 0, 1)); this.pl(d, lat * LANE_W * g.roadK(g.songT), 1); const v = new THREE.Vector3(this.qx, 0.55 + this.qy, this.qz).applyMatrix4(this.rig.matrix); return { x: v.x, y: v.y, z: v.z }; },
   applyShots(g, shots, res) {
     const D = this._dv;
     for (let s = 0; s < shots.length; s++) {
       const sh = shots[s], q = res[s];
-      if (q.boss) { this.fireBolt(sh.side, sh.mz, q.boss); if (g.bossHit(1)) { const P = q.boss.clone(); this.rig.parent.worldToLocal(P); this.burst(P.x, 10, [1, 0.5, 0.15], 2.2, 2.2, P.y, P.z); } }
-      else if (q.n) { this.fireBolt(sh.side, sh.mz, D.b.set(q.wx, q.wy, q.wz)); D.c.set(q.x, q.y, q.z).applyMatrix4(this.rig.matrix); g.shootNote(q.n, { x: D.c.x, y: D.c.y, z: D.c.z }); }
+      if (q.boss) { this.fireBolt(sh.side, sh.mz, q.boss); if (g.bossHit(sh.on ? 2 : 1)) { const P = q.boss.clone(); this.rig.parent.worldToLocal(P); this.burst(P.x, 10, [1, 0.5, 0.15], 2.2, 2.2, P.y, P.z); } }
+      else if (q.p) { this.fireBolt(sh.side, sh.mz, D.b.set(q.wx, q.wy, q.wz)); D.c.set(q.x, q.y, q.z).applyMatrix4(this.rig.matrix); g.shootProj(q.p, { x: D.c.x, y: D.c.y, z: D.c.z }, sh.on); }
+      else if (q.n) { this.fireBolt(sh.side, sh.mz, D.b.set(q.wx, q.wy, q.wz)); D.c.set(q.x, q.y, q.z).applyMatrix4(this.rig.matrix); g.shootNote(q.n, { x: D.c.x, y: D.c.y, z: D.c.z }, sh.on); }
       else this.fireBolt(sh.side, sh.mz, D.b.copy(sh.o).addScaledVector(sh.d, 70));
     }
   },
@@ -4112,7 +4187,7 @@ const R = {
     if (g.saber) { gl = this.saberFrame(g, dt, songT, speed, now, pulse, kickE, c, gl, GP, GC, glowOn); }
     else if (notes.length && g.state !== 'menu') {
       let i0 = Math.max(0, g.resolved - 4);
-      const shots = g.drive && g.shotQ.length ? g.shotQ.splice(0, g.shotQ.length) : null, sres = shots ? shots.map(() => ({ n: null, sc: 1e9, x: 0, y: 0, z: 0 })) : null, DV = this._dv;
+      const shots = g.drive && g.shotQ.length ? g.shotQ.splice(0, g.shotQ.length) : null, sres = shots ? shots.map(() => ({ n: null, p: null, sc: 1e9, x: 0, y: 0, z: 0 })) : null, DV = this._dv;
       for (let i = i0; i < notes.length && nnT < this.noteCap * 2 && no < this.noteCap; i++) {
         const n = notes[i], d = (n.t - songT) * speed;
         if (d > FAR) break; if (d < cull) continue;
@@ -4124,8 +4199,8 @@ const R = {
           for (let s = 0; s < shots.length; s++) {
             const sh = shots[s], R2 = sres[s]; let sc;
             if (sh.auto) { if (Math.abs(x - this.ship.position.x) > 0.85) continue; sc = d; }
-            else { DV.a.copy(DV.c).sub(sh.o); const t = DV.a.dot(sh.d); if (t < 0.3) continue; const perp = DV.a.addScaledVector(sh.d, -t).length(), al = (sh.flat ? 0.8 + t * 0.035 : 0.45 + t * 0.022) + (wallN ? 0.35 : 0); if (perp > al) continue; sc = perp / al + d * 0.004; }
-            if (sc < R2.sc) { R2.sc = sc; R2.n = n; R2.x = x; R2.y = ly; R2.z = z; R2.wx = DV.c.x; R2.wy = DV.c.y; R2.wz = DV.c.z; }
+            else { DV.a.copy(DV.c).sub(sh.o); const t = DV.a.dot(sh.d); if (t < 0.3) continue; const perp = DV.a.addScaledVector(sh.d, -t).length(), al = ((sh.flat ? 0.8 + t * 0.035 : 0.45 + t * 0.022) + (wallN ? 0.35 : 0)) * (g.odActive ? 1.7 : 1); if (perp > al) continue; sc = perp / al + d * 0.004; }
+            if (sc < R2.sc) { R2.sc = sc; R2.n = n; R2.p = null; R2.x = x; R2.y = ly; R2.z = z; R2.wx = DV.c.x; R2.wy = DV.c.y; R2.wz = DV.c.z; }
           }
         }
         if (n.type === NOTE_OBSTACLE) {
@@ -4151,10 +4226,11 @@ const R = {
           SS.n++; nnT++;
         }
       }
+      if (g.drive) this.orbFrame(g, dt, songT, speed, now, shots, sres, Yf, pulse);
       if (shots && this.bossC && this.bossC.ok) {                                     // the colossus is a big sphere: a bolt that finds no hazard on its way can hit it
         const C = DV.c.set(this.bossC.x, this.bossC.y, this.bossC.z).applyMatrix4(this.rig.matrixWorld), br = this.bossC.r * 1.3;
         for (let s = 0; s < shots.length; s++) {
-          if (sres[s].n && sres[s].n.type === NOTE_OBSTACLE) continue; const sh = shots[s]; DV.a.copy(C).sub(sh.o); const t = DV.a.dot(sh.d); if (t < 1) continue;
+          if ((sres[s].n && sres[s].n.type === NOTE_OBSTACLE) || sres[s].p) continue; const sh = shots[s]; DV.a.copy(C).sub(sh.o); const t = DV.a.dot(sh.d); if (t < 1) continue;
           const perp2 = DV.a.lengthSq() - t * t; if (perp2 > br * br) continue;
           const th = t - Math.sqrt(Math.max(0, br * br - perp2)); DV.b.copy(sh.o).addScaledVector(sh.d, th); sres[s].boss = DV.b.clone(); sres[s].n = null;
         }
@@ -4203,6 +4279,8 @@ const R = {
       if (ev.k === 'phrase') { for (let i = 0; i < 5; i++) this.burst((Math.random() - 0.5) * 4, 2 + i * 1.2, [1, 0.85, 0.3], 2, 2.4); }
       if (ev.k === 'saber' || ev.k === 'saberWrong' || ev.k === 'saberMine') this.spawnCut(ev);
       if (ev.k === 'saber') { const cc = ev.col ? [0.2, 0.5, 1] : [1, 0.15, 0.25]; this.burst(ev.px, (ev.good ? 26 : 14) * (Game.weapon === 'fists' ? 2 : 1), cc, Game.weapon === 'fists' ? 2.4 : 1.8, 2.4, ev.py, ev.pz); }
+      else if (ev.k === 'orbFire') AudioEng.orbFire();
+      else if (ev.k === 'orbBurst') { const D = this._dv; D.c.set(ev.x * LANE_W * Game.roadK(Game.songT), 0.5, SHIP_Z - 0.3).applyMatrix4(this.rig.matrix); this.burst(D.c.x, 22, [1, 0.45, 0.15], 2.0, 2.4, D.c.y, D.c.z); this.ring(D.c.x, D.c.y, D.c.z, [1.4, 0.5, 0.2], 1.2, 0.4); }
       else if (ev.k === 'zap') { this.burst(ev.x, ev.hazard ? 24 : 20, ev.hazard ? [1, 0.5, 0.2] : [0.4, 1, 0.9], 2.0, 2.4, ev.y, ev.z); this.ring(ev.x, ev.y, ev.z, ev.hazard ? [1.4, 0.55, 0.2] : [0.5, 1.4, 1.2], ev.hazard ? 1.3 : 1.0, 0.4); }
       else if (ev.k === 'hit' && !ev.shot) { const lc = ev.gold ? [1, 0.85, 0.3] : LANE_COL[ev.lane]; this.burst(ev.x, ev.gold ? 34 : ev.perfect ? 22 : 14, lc, ev.gold ? 2.0 : 1.4, ev.gold ? 3.0 : 2.2);
         const D = this._dv; D.c.set(ev.x * LANE_W * Game.roadK(Game.songT), 0.45, SHIP_Z - 0.3).applyMatrix4(this.rig.matrix); this.ring(D.c.x, D.c.y, D.c.z, [lc[0] * 1.2 + 0.2, lc[1] * 1.2 + 0.2, lc[2] * 1.2 + 0.2], ev.gold ? 1.5 : ev.perfect ? 1.15 : 0.85, ev.gold ? 0.55 : 0.4); }
@@ -6229,7 +6307,7 @@ const UI = {
       case 'spectate': this.set('spectate'); break;
       case 'sp_host': case 'sp_watch': case 'sp_key': case 'sp_stop': case 'sp_back': Spectate.act(id, parts); break;
       case 'sp_party': UI.set('party'); break;
-      case 'pt_host': case 'pt_join': case 'pt_key': case 'pt_start': case 'pt_song': case 'pt_view': case 'pt_leave': case 'pt_back': case 'pt_rank': Party.act(id, parts); break;
+      case 'pt_host': case 'pt_join': case 'pt_key': case 'pt_start': case 'pt_song': case 'pt_view': case 'pt_coop': case 'pt_driver': case 'pt_leave': case 'pt_back': case 'pt_rank': Party.act(id, parts); break;
       case 'cal_back': Calib.stop(); this.set('settings'); break;
       case 'share': Share.go(); break;
       case 'cback': this.set('settings'); break;
@@ -6544,7 +6622,7 @@ const UI = {
     { const mc = r.maxCombo | 0, tn = mc >= 100 ? 4 : mc >= 50 ? 3 : mc >= 25 ? 2 : mc >= 10 ? 1 : 0; if (tn) st[1] = ['Max combo', mc + '  ·  ' + STREAK_NAMES[tn]]; }
     if (Game.phrases && Game.phrases.length) st[3] = ['Star phrases', (Game.phraseGot | 0) + ' / ' + Game.phrases.length];
     if (Game.drive && Game.bossTotal) st[6] = ['Bosses beaten', (Game.bossKills | 0) + ' / ' + Game.bossTotal];
-    if (Game.drive) { st[3] = ['Gems shot', r.shotGems]; st[5] = ['Hazards shot', r.shotObs]; }
+    if (Game.drive) { st[0] = ['Shot accuracy', Math.round((r.shotAcc || 0) * 100) + '%']; st[2] = ['On-beat shots', (r.beatShots | 0) + '  ·  best streak ' + (r.bestRhythm | 0)]; st[3] = ['Gems shot', r.shotGems]; st[5] = ['Hazards + orbs shot', r.shotObs + ' + ' + (r.orbsShot | 0)]; }
     st.forEach((s, i) => { const col = i % 2, row = (i / 2) | 0, x = 440 + col * 280, y = 300 + row * 58; this.text(s[0].toUpperCase(), x, y, this.font(16, 700), C.dim); this.text(String(s[1]), x, y + 32, this.font(28, 800), C.tx); });
     { const rw = r.reward; if (rw) this.text('+' + rw.xp + ' XP' + (rw.lvUp ? '   ·   LEVEL ' + rw.lvUp + '!' : '   ·   LV ' + Profile.level) + (rw.ach.length ? '   ·   ' + rw.ach[0] : ''), UW / 2, 524, this.font(22, 800), rw.lvUp ? C.gd : C.cy, 'center'); }
     if (Queue.run) {
@@ -6572,7 +6650,7 @@ const HUD = {
     const sf = G.sceneFlash > 0 && G.songT > 0 ? Math.min(1, G.sceneFlash) : 0, sName = SCENES[G.sceneIdx] ? SCENES[G.sceneIdx].name : '';
     const cd = G.songT < 0 ? Math.ceil(-G.songT) : 0, ready = G.od >= 0.5 && !G.odActive, tm = Math.max(0, Math.floor(G.songT));
     const nc = G.nextCorner, ncK = nc ? (nc.dir > 0 ? 'R' : 'L') + Math.ceil(nc.dt * 3) : '', btK = G.bt > 0.5 ? 1 : 0, rw = G.rollWarn, rwT = rw ? Math.max(0, rw.t0 - G.songT) : 0, rwK = rw ? Math.ceil(rwT * 4) : '';
-    const key = [G.journey ? (G.ride ? 'R' + (Ghosts.scoreAt(G.ride, G.songT) || 0) : 'J') : G.score, G.hits + G.misses, G.mult, G.combo, G.odActive ? 1 : 0, Math.round(G.od * 40), cd, tm, G.shields, ready ? Math.floor(now / 280) % 2 : 0, UI.xr ? 1 : 0, Settings.control, G.state, sf > 0 ? sName + Math.ceil(sf * 5) : '', G.holding ? 1 : 0, ncK, btK, G.inv > 0 ? 1 : 0, Settings.hud, G.hellT > 0 ? 1 + Math.floor(now / 140) % 2 : 0, G.stk | 0, G.boss ? G.boss.st + Math.ceil(G.boss.hp / G.boss.hpMax * 40) : 0, Math.ceil((G.phrasePop || 0) * 8), G.odActive ? Math.floor(now / 200) % 2 : 0, Math.ceil((G.tierPop || 0) * 8), rwK, Math.round(G.energy / 2), (rw || (G.energy < 25 && !G.journey)) ? Math.floor(now / 160) % 2 : 0, Math.cos(G.roll || 0) < 0.15 ? 1 : 0].join('|');
+    const key = [G.journey ? (G.ride ? 'R' + (Ghosts.scoreAt(G.ride, G.songT) || 0) : 'J') : G.score, G.hits + G.misses, G.mult, G.combo, G.odActive ? 1 : 0, Math.round(G.od * 40), cd, tm, G.shields, ready ? Math.floor(now / 280) % 2 : 0, UI.xr ? 1 : 0, Settings.control, G.state, sf > 0 ? sName + Math.ceil(sf * 5) : '', G.holding ? 1 : 0, ncK, btK, G.inv > 0 ? 1 : 0, Settings.hud, G.hellT > 0 ? 1 + Math.floor(now / 140) % 2 : 0, G.stk | 0, G.boss ? G.boss.st + Math.ceil(G.boss.hp / G.boss.hpMax * 40) : 0, Math.ceil((G.phrasePop || 0) * 8), G.odActive ? Math.floor(now / 200) % 2 : 0, Math.ceil((G.tierPop || 0) * 8), rwK, Math.round(G.energy / 2), (rw || (G.energy < 25 && !G.journey)) ? Math.floor(now / 160) % 2 : 0, Math.cos(G.roll || 0) < 0.15 ? 1 : 0, G.drive ? G.rhythm : 0].join('|');
     if (key === this.key) return false; this.key = key;
     g.clearRect(0, 0, 768, 256); g.textBaseline = 'alphabetic';
     const bossBar = () => {
@@ -6642,6 +6720,7 @@ const HUD = {
     banner();
     T('TIME', 728, 44, UI.font(19, 700), C.dim, 'right'); T(fmtTime(Math.max(0, G.songT)), 728, 100, UI.font(46, 800), C.tx, 'right'); T('/ ' + fmtTime(dur), 728, 128, UI.font(22, 600), C.dim, 'right');
     meter(468, 197, 260, 16, true);
+    if (G.drive && G.rhythm >= 2) { const rr = Math.min(20, G.rhythm); T('RHYTHM  x' + G.rhythm, 728, 166, UI.font(20 + Math.min(8, rr / 3), 900), rr >= 10 ? '#ffd23c' : '#8fe9ff', 'right'); }
     // overdrive bar
     const obw = 410, by = 192, bh = 28; UI.rr.call({ g }, bx, by, obw, bh, 14); g.fillStyle = 'rgba(255,255,255,0.1)'; g.fill();
     if (G.od > 0.01) { UI.rr.call({ g }, bx, by, Math.max(bh, obw * G.od), bh, 14); g.fillStyle = G.odActive ? C.gd : ready ? (Math.floor(now / 280) % 2 ? C.gd : '#fff2b0') : C.cy; g.fill(); }
@@ -7171,7 +7250,7 @@ const Party = {
   relay: (() => { try { return new URLSearchParams(location.search).get('relay') || 'https://ntfy.sh'; } catch (e) { return 'https://ntfy.sh'; } })(),
   ice: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }],
   role: null, st: 'idle', code: '', input: '', msg: '', gid: '', pid: 0, sess: 0, es: [], peers: new Map(), pc: null, dc: null,
-  names: {}, tbl: {}, round: false, tx: 0, sendT: 0, miss: '', me: { fin: false }, ghostAt: {}, mk: null,
+  names: {}, tbl: {}, round: false, coop: false, drv: 0, hist: [], tx: 0, sendT: 0, miss: '', me: { fin: false }, ghostAt: {}, mk: null,
   on() { return this.st === 'live' || this.round; },
   digits() { let s = ''; for (let i = 0; i < 6; i++) s += (Math.random() * 10) | 0; return s; },
   say(m, st) { this.msg = m; if (st) this.st = st; UI.dirty = true; },
@@ -7227,14 +7306,16 @@ const Party = {
   hostRecv(P, txt) {
     let m; try { m = JSON.parse(txt); } catch (e) { return; }
     if (m.k === 'hi') { P.name = (m.n || P.name).slice(0, 14); this.names[P.pid] = P.name; this.sendRoster(); }
-    else if (m.k === 's') { m.i = P.pid; this.tbl[P.pid] = Object.assign(this.tbl[P.pid] || {}, m, { at: performance.now() }); }
+    else if (m.k === 's') { m.i = P.pid; this.tbl[P.pid] = Object.assign(this.tbl[P.pid] || {}, m, { at: performance.now() }); if (this.coop && P.pid === this.drv && Game.gunner) this.feedCoop(m); }
+    else if (m.k === 'rl') this.hostRelay(P, m);
     else if (m.k === 'fin') { const r = this.tbl[P.pid] = Object.assign(this.tbl[P.pid] || {}, { sc: m.sc | 0, cb: m.mc | 0, f: 1, fl: m.fl ? 1 : 0, ac: m.ac | 0, i: P.pid }); UI.dirty = true; }
     else if (m.k === 'miss') { this.names[P.pid] = P.name; this.miss = P.name + ' is missing the song'; UI.dirty = true; }
   },
   guestRecv(txt) {
     let m; try { m = JSON.parse(txt); } catch (e) { return; }
     if (m.k === 'roster') { this.pid = m.you | 0; this.names = m.p || {}; UI.dirty = true; }
-    else if (m.k === 'tbl') { for (const r of m.p) { if (r.i === this.pid) continue; this.tbl[r.i] = Object.assign(this.tbl[r.i] || {}, r, { at: performance.now() }); } for (const k of Object.keys(this.tbl)) if (!(k in this.names)) delete this.tbl[k]; }
+    else if (m.k === 'rl') this.recvRelay(m.m);
+    else if (m.k === 'tbl') { for (const r of m.p) { if (this.coop && r.i === this.drv && Game.gunner) this.feedCoop(r); if (r.i === this.pid) continue; this.tbl[r.i] = Object.assign(this.tbl[r.i] || {}, r, { at: performance.now() }); } for (const k of Object.keys(this.tbl)) if (!(k in this.names)) delete this.tbl[k]; }
     else if (m.k === 'start') this.begin(m);
     else if (m.k === 'late') { UI.toast('A song is already playing: you join at the next one'); }
     else if (m.k === 'end') { this.round = false; }
@@ -7244,30 +7325,60 @@ const Party = {
     if (this.role !== 'host') return; const it = Library.items[Library.selected]; if (!it || it.status !== 'ready') { UI.toast('Pick a song first'); return; }
     if (Settings.mode === 'journey') { UI.toast('Journey is a ride, not a race: pick Game, Sabers, Punch, Drive-by or Guitar'); return; }
     this.tbl = {}; this.miss = ''; this.round = true; this.me = { fin: false };
-    this.bcast({ k: 'start', key: it.key, name: it.name, diff: Settings.difficulty, mode: Settings.mode, flight: !!Settings.flight, rules: Settings.rules, view: Settings.partyView || 'ghost' });
-    UI.set(null); startSelected();
+    const coop = !!Settings.partyCoop && Settings.mode === 'drive' && this.count() >= 2, drv = (Settings.partyDriver in this.names) ? Settings.partyDriver | 0 : 0;
+    this.bcast({ k: 'start', key: it.key, name: it.name, diff: Settings.difficulty, mode: Settings.mode, flight: !!Settings.flight, rules: Settings.rules, view: Settings.partyView || 'ghost', coop, driver: drv });
+    this.setRole(coop, drv); UI.set(null); startSelected();
   },
+  setRole(coop, drv) { this.coop = !!coop; this.drv = drv | 0; this.hist = []; Spectate.last = null; const gun = this.coop && this.pid !== this.drv; Game.watch = gun; Game.gunner = gun; if (gun) Game.hostPaused = false; },
   begin(m) {
     const L = Library, idx = L.items.findIndex((i) => i.key === m.key); this.tbl = {}; this.round = true; this.me = { fin: false };
     if (idx < 0 || L.items[idx].status !== 'ready') { this.round = false; this.miss = m.name || 'this song'; this.say('The host started "' + this.miss + '" and you do not have it yet. Add it in Find songs, then ask for another round.', 'live'); this.send({ k: 'miss' }); UI.toast('Missing song: ' + this.miss); return; }
     Settings.mode = m.mode || 'play'; Settings.difficulty = m.diff | 0; Settings.flight = !!m.flight; if (m.rules) Settings.rules = m.rules; L.selected = idx; this.miss = '';
     if (Game.state === 'playing' || Game.state === 'paused') { try { AudioEng.stop(); } catch (e) {} Game.state = 'menu'; }
-    startSelected(); UI.toast('Party round: ' + (m.name || 'song'));
+    this.setRole(m.coop && m.mode === 'drive', m.driver | 0); startSelected(); UI.toast(this.coop ? (this.pid === this.drv ? 'Co-op: you DRIVE, the others shoot' : 'Co-op: you are the GUNNER, shoot for ' + (this.names[this.drv] || 'the driver')) : 'Party round: ' + (m.name || 'song'));
   },
-  onStart() { if (this.round) { this.me = { fin: false }; this.tx = 0; this.mk = null; } },
+  onStart() { if (this.round) { this.me = { fin: false }; this.tx = 0; this.mk = null; if (this.coop) Game.coop = { role: this.pid === this.drv ? 'driver' : 'gunner' }; } },
   onEnd() {
+    if (this.coop && Game.coop && Game.coop.role === 'driver') this.sendAll({ k: 'cend', failed: !!Game.failed, score: Game.score | 0 });
     if (!this.round && this.st !== 'live') return; const g = Game, o = { k: 'fin', sc: g.score | 0, mc: g.maxCombo | 0, fl: g.failed ? 1 : 0, ac: Math.round(100 * (g.hits || 0) / Math.max(1, (g.hits || 0) + (g.misses || 0))) };
     this.me.fin = true;
     if (this.role === 'host') this.tbl[0] = { i: 0, sc: o.sc, cb: o.mc, f: 1, fl: o.fl, ac: o.ac }; else this.send(o);
   },
-  me10() { const g = Game; return { k: 's', t: +g.songT.toFixed(2), l: Math.round(g.lat * 100), a: Math.round((g.alt || 0) * 100), sc: g.score | 0, cb: g.combo | 0, h: g.hits | 0, m: g.misses | 0 }; },
+  me10() { const g = Game; return { mu: g.mult | 0, en: Math.round(g.energy), od: g.odActive ? 1 : 0, bh: g.boss && g.boss.st === 'fight' ? +(g.boss.hp / g.boss.hpMax).toFixed(3) : -1, k: 's', t: +g.songT.toFixed(2), l: Math.round(g.lat * 100), a: Math.round((g.alt || 0) * 100), sc: g.score | 0, cb: g.combo | 0, h: g.hits | 0, m: g.misses | 0 }; },
   tick(dt) {
     if (this.st !== 'live') return; const g = Game, playing = this.round && g.state === 'playing' && !g.watch && g.songT > -3;
     this.tx += dt; if (this.tx < 0.1) return; this.tx = 0;
-    if (playing) { const s = this.me10(); if (this.role === 'host') this.tbl[0] = Object.assign(this.tbl[0] || { i: 0 }, s, { i: 0, f: 0 }); else this.send(s); }
+    if (playing && (!this.coop || this.pid === this.drv)) { const s = this.me10(); if (this.role === 'host') this.tbl[0] = Object.assign(this.tbl[0] || { i: 0 }, s, { i: 0, f: 0 }); else this.send(s); }
     if (this.role === 'host' && this.round && this.peers.size) {
-      const now = performance.now(), p = []; for (const k of Object.keys(this.tbl)) { const r = this.tbl[k]; if (r.f !== 1 && r.at && now - r.at > 4000 && +k !== 0) continue; p.push({ i: +k, t: r.t, l: r.l, a: r.a, sc: r.sc, cb: r.cb, f: r.f ? 1 : 0, fl: r.fl, ac: r.ac }); }
+      const now = performance.now(), p = []; for (const k of Object.keys(this.tbl)) { const r = this.tbl[k]; if (r.f !== 1 && r.at && now - r.at > 4000 && +k !== 0) continue; p.push({ i: +k, t: r.t, l: r.l, a: r.a, sc: r.sc, cb: r.cb, f: r.f ? 1 : 0, fl: r.fl, ac: r.ac, mu: r.mu, en: r.en, od: r.od, bh: r.bh, h: r.h, m: r.m }); }
       this.bcast({ k: 'tbl', p });
+    }
+  },
+  // ---------- co-op (Drive-by: one drives, the others shoot) ----------
+  peerByPid(pid) { for (const P of this.peers.values()) if (P.pid === pid) return P; return null; },
+  sendAll(m) { if (!this.coop) return; if (this.role === 'host') this.bcast({ k: 'rl', m }); else this.send({ k: 'rl', to: '*', m }); },
+  sendPid(pid, m) { if (this.role === 'host') { if (pid === 0) this.recvRelay(m); else { const P = this.peerByPid(pid); if (P) this.sendTo(P, { k: 'rl', m }); } } else this.send({ k: 'rl', to: pid, m }); },
+  hostRelay(P, m) { if (m.to === '*') { this.bcast({ k: 'rl', m: m.m }, P); this.recvRelay(m.m); } else this.sendPid(m.to | 0, m.m); },
+  report(m) { if (this.coop) this.sendPid(this.drv, m); },
+  feedCoop(r) {
+    Spectate.last = { l: r.l, a: r.a, sc: r.sc, cb: r.cb, mu: r.mu || 1, en: r.en == null ? 100 : r.en, od: r.od, h: r.h || 0, m: r.m || 0 }; Spectate.lastAt = performance.now();
+    this.hist.push({ t: r.t, l: r.l / 100 }); if (this.hist.length > 80) this.hist.shift();
+    const B = Game.boss; if (B && B.st === 'fight' && r.bh >= 0) B.hp = Math.min(B.hp, r.bh * B.hpMax) || B.hp;
+  },
+  steerGunner(dt) {                                                       // the driver's lane, replayed at THIS device's song time so the ship lines up with the notes whatever the start skew
+    const h = this.hist, g = Game; if (!h.length) return; const t = g.songT; let v = h[h.length - 1].l;
+    if (t < h[h.length - 1].t) { for (let i = h.length - 1; i > 0; i--) if (h[i - 1].t <= t) { const a = h[i - 1], b = h[i], k = clamp((t - a.t) / Math.max(0.01, b.t - a.t), 0, 1); v = a.l + (b.l - a.l) * k; break; } else if (i === 1) v = h[0].l; }
+    g.latTarget = v; Input.target = v;
+  },
+  recvRelay(m) {
+    const g = Game;
+    if (m.k === 'orb') { if (g.gunner) g.addOrb(m); }
+    else if (m.k === 'orbx') { const p = g.proj.find(q => q.id === m.id); if (p && !p.dead) { p.dead = true; const o = R.projPos(p); g.emit({ k: 'zap', hazard: true, x: o.x, y: o.y, z: o.z, lane: 2 }); } }
+    else if (m.k === 'cend') { if (g.watch && g.state === 'playing') { g._wf = true; g.score = m.score | 0; g.finish(!!m.failed); g._wf = false; UI.set('results'); } }
+    else if (m.k === 'ch' && g.coop && g.coop.role === 'driver' && g.state === 'playing') {
+      if (m.ty === 'n') { for (let i = Math.max(0, g.resolved - 6); i < g.notes.length; i++) { const n = g.notes[i]; if (n.t > m.t + 0.05) break; if (n.hit === HIT_NONE && n.lane === m.lane && Math.abs(n.t - m.t) < 0.015 && n.type !== NOTE_HOLD) { g.shootNote(n, R.notePos(n), m.on); break; } } }
+      else if (m.ty === 'o') { const p = g.proj.find(q => q.id === m.id); if (p) g.shootProj(p, R.projPos(p), m.on); }
+      else if (m.ty === 'b') g.bossHit(m.n | 0 || 1);
     }
   },
   // ---------- read-outs ----------
@@ -7277,7 +7388,7 @@ const Party = {
     for (const k of Object.keys(this.tbl)) { const i = +k; if (i === this.pid) continue; add(i, this.names[i] || ('Player ' + i), this.tbl[k]); }
     out.sort((a, b) => b.sc - a.sc); out.forEach((o, i) => { o.rank = i + 1; }); return out;
   },
-  sig() { if (!this.round || Game.state !== 'playing') return ''; const s = this.standings(); return s.length < 2 ? '' : s.map(o => o.i + ':' + Math.round(o.sc / 50) + (o.f ? 'f' : '')).join(','); },
+  sig() { if (!this.round || Game.state !== 'playing' || this.coop) return ''; const s = this.standings(); return s.length < 2 ? '' : s.map(o => o.i + ':' + Math.round(o.sc / 50) + (o.f ? 'f' : '')).join(','); },
   hudDraw(g) {                                                            // a small live leaderboard in the top-left of the HUD
     const s = this.standings(); if (s.length < 2) return; const me = s.findIndex(o => o.you), show = s.slice(0, 4); if (me >= 4) show[3] = s[me];
     g.save(); g.textBaseline = 'alphabetic'; const x = 8, y = 6, rh = 22, w = 196; UI.rr.call({ g }, x, y, w, 8 + show.length * rh, 10); g.fillStyle = 'rgba(8,4,28,0.62)'; g.fill();
@@ -7286,7 +7397,7 @@ const Party = {
   },
   // rivals for the renderer: where each other player is on the song and the track
   rivals() {
-    const out = [], now = performance.now(); if (!this.round || Game.state !== 'playing') return out;
+    const out = [], now = performance.now(); if (!this.round || Game.state !== 'playing' || this.coop) return out;
     for (const k of Object.keys(this.tbl)) { const i = +k, r = this.tbl[k]; if (i === this.pid || r.f || r.l === undefined || (r.at && now - r.at > 3500)) continue; out.push({ i, lat: r.l / 100, alt: r.a / 100, t: r.t || 0, col: PARTY_COL[i % PARTY_COL.length], name: this.names[i] || '' }); }
     return out;
   },
@@ -7299,6 +7410,8 @@ const Party = {
     else if (a === 'pt_start') this.startRound();
     else if (a === 'pt_song') UI.set('home');
     else if (a === 'pt_view') { Settings.partyView = Settings.partyView === 'tracks' ? 'ghost' : 'tracks'; saveSettings(); UI.dirty = true; }
+    else if (a === 'pt_coop') { Settings.partyCoop = !Settings.partyCoop; saveSettings(); UI.dirty = true; }
+    else if (a === 'pt_driver') { const ids = Object.keys(this.names).map(Number).sort((x, y) => x - y); const i = ids.indexOf(Settings.partyDriver | 0); Settings.partyDriver = ids[(i + 1) % ids.length] | 0; saveSettings(); UI.dirty = true; }
     else if (a === 'pt_leave') { this.close(); UI.dirty = true; }
     else if (a === 'pt_back') UI.set(UI.screen === 'rank' ? 'results' : 'home');
     else if (a === 'pt_rank') UI.set('rank');
@@ -7332,6 +7445,7 @@ const Party = {
     } else {
       u.text('The host picks the song and mode. Everyone plays it on their own device.', UW / 2, 330, u.font(19, 500), C.dim, 'center');
     }
+    if (host && Settings.mode === 'drive') { const co = !!Settings.partyCoop, dn = this.names[Settings.partyDriver | 0] || this.names[0]; u.button('pt_coop', 520, 408, 216, 38, co ? 'Co-op: team up' : 'Co-op: off (race)', { size: 16, sel: co }); if (co) u.button('pt_driver', 744, 408, 216, 38, 'Driver: ' + dn, { size: 16 }); }
     u.button('pt_view', host ? 520 : 312, 452, 440, 48, 'Rivals: ' + ((Settings.partyView || 'ghost') === 'tracks' ? 'own side tracks' : 'ghost ships on my track'), { size: 18 });
     if (this.miss) u.text(this.miss, UW / 2, 524, u.font(18, 600), C.gd, 'center');
     u.button('pt_leave', 312, 522, 400, 50, host ? 'Close room' : 'Leave room', { size: 20 });
@@ -7682,7 +7796,7 @@ const Spectate = {
     if (s.od) { g.odActive = true; g.odLeft = Math.max(g.odLeft, 2); g.od = 1; } else if (g.odActive) { g.odActive = false; g.odLeft = 0; }
   },
   leave() {
-    Game.watch = false; Game.hostPaused = false; if (this.prev) { Settings.mode = this.prev.mode; Settings.difficulty = this.prev.diff; Settings.flight = this.prev.flight; this.prev = null; }
+    Game.watch = false; Game.gunner = false; Game.hostPaused = false; if (this.prev) { Settings.mode = this.prev.mode; Settings.difficulty = this.prev.diff; Settings.flight = this.prev.flight; this.prev = null; }
   },
   // ---------- screen ----------
   act(id, parts) {
@@ -7998,7 +8112,7 @@ function handleEvents(list) {
       case 'gstrum': if (st === 'playing' && Game.guitar && !Game.watch) Game.gtrStrum(); break;
       case 'overdrive': if (st === 'playing' && !Game.watch) Game.activateOverdrive(); break;
       case 'sky': if (st === 'playing' && !Game.watch) Game.skyBolt(e); break;
-      case 'fire': if (st === 'playing' && Game.drive && !Game.watch) driveFire(e); break;
+      case 'fire': if (st === 'playing' && Game.drive && (!Game.watch || Game.gunner)) driveFire(e); break;
       case 'pause': doPause(); break;
       case 'ok': if (st === 'playing') Game.activateOverdrive(); else if (sc === 'home' || sc === 'setup') handleAct('play'); else if (sc === 'pause') handleAct('resume'); else if (sc === 'results') handleAct(Queue.run ? 'qagain' : 'retry'); break;
       case 'back': if (st === 'playing') doPause(); else if (sc === 'pause') handleAct('resume'); else if (sc === 'setup') UI.set('home'); else if (sc === 'comfort') UI.set('settings'); else if (sc === 'settings' || sc === 'search') UI.act('back'); else if (sc === 'results') handleAct('menu'); break;
@@ -8078,7 +8192,7 @@ function loop(time, frame) {
   AudioEng.update(dt);
   if (inXR && Input.headOK) AudioEng.listen(Input.head, Input.headQ);
   MR.frame(dt, inXR ? frame : null, inXR ? renderer.xr.getReferenceSpace() : null);
-  if (Game.state === 'playing') { if (Game.watch) Spectate.steer(dt); else if (Game.journey) Game.autoSteer(dt); else Game.latTarget = Input.target; }
+  if (Game.state === 'playing') { if (Game.watch) { if (Game.gunner) Party.steerGunner(dt); else Spectate.steer(dt); } else if (Game.journey) Game.autoSteer(dt); else Game.latTarget = Input.target; }
   Game.update(dt); if (Game.watch) Spectate.apply(dt); Spectate.tick(dt); Party.tick(dt);
   if (Game.state !== lastState) {
     if (Game.state === 'results') { UI.set('results'); if (XR.session) placePanel(); }
