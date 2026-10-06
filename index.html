@@ -96,7 +96,7 @@ const DIFFICULTIES = [
 const DEFAULT_SETTINGS = {
   difficulty: 1, speed: 1, control: 'point', ctlv: 2, flight: true, hand: 'right', sens: 1,
   vignette: true, haptics: 'full', hitVol: 0.6, musicVol: 0.9, offsetMs: 0,
-  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: true, mrHand: true, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true,
+  mrStyle: 'neon', mrWorld: 0.45, mrDim: 0.35, mrPulse: true, mrEdge: true, mrWall: 'grid', mrOcc: true, mrHand: true, mrOrb: true, mrSafe: true, mrCalm: true, mrBright: 1, mrFlip: false, mrGhost: true, mrSpatial: true, mrCockpit: 'holo', mrHud: true, mrStreak: true, mrAlert: true, mrLift: false, mrStick: true, skyBolt: true, mrSky: true, mrFloor: true, mrHitFx: true, mrSonar: true, mrClap: true,
   quality: 0, refresh: 120, hqv: 1, scale: 1.0, mode: 'play', rules: 'shield', corners: 'auto', trip: true, collectSound: false, view: 'chase', viewD: 'cockpit', viewO: 'chase', vgrp: 'O', deaths: true, chartSrc: 'map', favs: {}, tilt: 'auto', skin: 0, vehicle: 0, touch: 'lanes', touchSpd: 1.25, touchv: 2, scenes: 'auto', hud: 'min', hudv: 2, cMotion: false, cFlash: false, cSteady: false, cCalm: false, cSeated: false
 };
 function applyModeView() {                       // each mode family remembers its own view; Drive-by defaults to the cockpit
@@ -5525,6 +5525,13 @@ const MR_PILOT_ROWS = [
   { k: 'mrLift', label: 'Stand up to climb (flight)', bool: true },
   { k: 'skyBolt', label: 'Sky bolt (MR cockpit): hand up + trigger', bool: true }
 ];
+const MR_ROOM_ROWS = [
+  { k: 'mrSky', label: 'Spectrum skyline', bool: true },
+  { k: 'mrFloor', label: 'Floor rings', bool: true },
+  { k: 'mrHitFx', label: 'Hit ripples on walls', bool: true },
+  { k: 'mrSonar', label: 'Sonar room scan', bool: true },
+  { k: 'mrClap', label: 'Clap = overdrive', bool: true }
+];
 const MR_ROWS = [
   { k: 'mrWorld', label: 'Virtual world strength', min: 0, max: 1, step: 0.05, fmt: v => Math.round(v * 100) + '%' },
   { k: 'mrStyle', label: 'Camera look', opts: ['clear', 'neon', 'crt'], names: ['Clear', 'Neon tint', 'Retro CRT'] },
@@ -5594,7 +5601,7 @@ const UI = {
       case 'mrplace': MR.beginPlace(); break;
       case 'mrclear': MR.clearPlace(); break;
       case 'mrq': MR.toggleQuick(); break;
-      case 'mrpg': this.mrPage = this.mrPage ? 0 : 1; this.dirty = true; break;
+      case 'mrpg': this.mrPage = ((this.mrPage | 0) + 1) % 3; this.dirty = true; break;
       case 'calib': Calib.start(); break;
       case 'cal_apply': Calib.apply(); break;
       case 'gh_ride': case 'gh_share': case 'gh_del': case 'gh_imp': case 'gh_back': Ghosts.act(id, parts); break;
@@ -5638,7 +5645,7 @@ const UI = {
     }
   },
   adjust(k, dir) {
-    const row = SETTING_ROWS.concat(MR_ROWS, MR_PILOT_ROWS).find(r => r.k === k), S = Settings; if (!row) return;
+    const row = SETTING_ROWS.concat(MR_ROWS, MR_PILOT_ROWS, MR_ROOM_ROWS).find(r => r.k === k), S = Settings; if (!row) return;
     if (row.bool) S[k] = !S[k];
     else if (row.opts) { const i = row.opts.indexOf(S[k]); S[k] = row.opts[(Math.max(0, i) + dir + row.opts.length) % row.opts.length]; }
     else S[k] = clamp(Math.round((S[k] + dir * row.step) / row.step) * row.step, row.min, row.max), S[k] = Math.round(S[k] * 1000) / 1000;
@@ -5854,8 +5861,15 @@ const UI = {
   },
   mrScreen() {
     const g = this.g; this.panelBG(4, 4, UW - 8, UH - 8); this.title('Passthrough & extras', MR.on ? (MR.feat.depth ? 'Room depth is on' : 'Room depth not available here') : 'Applies in a MIXED session');
-    this.button('mrpg', 774, 50, 216, 44, this.mrPage ? '‹ Passthrough' : 'Pilot mode ›', { size: 20, weight: 700 });
-    if (this.mrPage) {
+    this.button('mrpg', 774, 50, 216, 44, this.mrPage === 1 ? 'Room show ›' : this.mrPage === 2 ? '‹ Passthrough' : 'Pilot mode ›', { size: 20, weight: 700 });
+    if (this.mrPage === 2) {
+      this.text('Room show: the music, drawn into your real room', 36, 134, this.font(24, 800), C.cy);
+      this.rowsBlock(MR_ROOM_ROWS, 5, 156, 470, 34, 40);
+      this.text('Bars and rings stand on your real floor and hide behind real furniture.  Ripples start where you hit and cross your walls.', 36, 420, this.font(17, 500), C.dim);
+      this.text('Hands only: clap both hands together to fire overdrive.  Sonar and ripples need room depth (Quest 3).', 36, 446, this.font(17, 500), C.dim);
+      this.button('mrback', 330, 560, 364, 56, 'Done', { primary: true, size: 26, weight: 800 }); return;
+    }
+    if (this.mrPage === 1) {
       this.text('Pilot mode: cockpit view + passthrough', 36, 134, this.font(24, 800), C.cy);
       this.rowsBlock(MR_PILOT_ROWS, 6, 156, 470, 34, 40);
       this.text('Start with  Mode: Play, view: Cockpit.  Flight on lets you climb: tilt the steering hand up, push a thumbstick up, or stand up (option above).', 36, 470, this.font(17, 500), C.dim);
@@ -6240,7 +6254,7 @@ const MR = {
       #else
       uniform highp sampler2D uDepth;
       #endif
-      uniform float uLayer, uRaw, uHasD, uFmt, uFlip, uOcc, uDim, uEdge, uWall, uWash, uKickAge, uTime, uBeat, uBright, uBias, uStyle, uTint, uAlert, uGold;
+      uniform float uLayer, uRaw, uHasD, uFmt, uFlip, uOcc, uDim, uEdge, uWall, uWash, uKickAge, uTime, uBeat, uBright, uBias, uStyle, uTint, uAlert, uGold, uSonar, uPulseOn; uniform vec3 uBL; uniform vec4 uPulse[4]; uniform vec3 uPulseC[4];
       uniform mat4 uNDBFNV, uInvProj, uCamWorld, uProj; uniform vec2 uTexel; uniform vec3 uA1, uA2, uHead;
       varying vec2 vUv;
       float rawD(vec2 uv) {
@@ -6256,14 +6270,26 @@ const MR = {
         float d = uHasD > 0.5 ? rawD(vUv) : 0.0; bool ok = d > 0.05 && d < 9.0; vec3 L = vec3(0.0);
         if (ok && uEdge > 0.5) {
           vec2 e = uTexel * 1.5; float g = abs(rawD(vUv + vec2(e.x, 0.0)) - rawD(vUv - vec2(e.x, 0.0))) + abs(rawD(vUv + vec2(0.0, e.y)) - rawD(vUv - vec2(0.0, e.y)));
-          float k = smoothstep(0.12, 0.4, g / max(d, 0.6)); L += mix(uA1, uA2, 0.5 + 0.5 * sin(uTime * 0.7)) * k * (0.35 + 0.6 * uBeat);
+          float k = smoothstep(0.12, 0.4, g / max(d, 0.6)); L += mix(uA1, uA2, clamp(0.5 + 0.5 * sin(uTime * 0.7) + uBL.z * 0.7 - 0.25, 0.0, 1.0)) * k * (0.28 + 0.5 * uBeat + 0.55 * uBL.x);
         }
-        if (ok && uWall > 0.5) {
+        if (ok && (uWall > 0.5 || uSonar > 0.5 || uPulseOn > 0.5)) {
           vec4 vp = uInvProj * vec4(vUv * 2.0 - 1.0, 1.0, 1.0); vec3 vpos = vp.xyz / vp.w; vpos *= d / max(0.01, -vpos.z);
-          vec3 wp = (uCamWorld * vec4(vpos, 1.0)).xyz; float r = length(wp - uHead);
-          float ring = exp(-pow((r - uKickAge * 6.5) * 2.4, 2.0)) * exp(-uKickAge * 1.3);
-          L += mix(uA1, uA2, clamp(r * 0.12, 0.0, 1.0)) * ring * 0.9;
-          if (uWall > 1.5) { vec3 q = abs(fract(wp * 1.25 + 0.5) - 0.5); float ln = 1.0 - smoothstep(0.0, 0.035, min(min(q.x, q.y), q.z)); L += uA2 * ln * (0.06 + 0.22 * uBeat + 0.35 * ring); }
+          vec3 wp = (uCamWorld * vec4(vpos, 1.0)).xyz; float r = length(wp - uHead); float ring = 0.0;
+          if (uWall > 0.5) {
+            ring = exp(-pow((r - uKickAge * 6.5) * 2.4, 2.0)) * exp(-uKickAge * 1.3);
+            L += mix(uA1, uA2, clamp(r * 0.12, 0.0, 1.0)) * ring * 0.9;
+            if (uWall > 1.5) { vec3 q = abs(fract(wp * 1.25 + 0.5) - 0.5); float ln = 1.0 - smoothstep(0.0, 0.035, min(min(q.x, q.y), q.z)); L += mix(uA2, uA1, uBL.y) * ln * (0.06 + 0.22 * uBeat + 0.35 * ring + 0.25 * uBL.y); }
+          }
+          if (uSonar > 0.5) {                                              // depth scan: contour shells of distance sweep outward from you, brightest on the bass
+            float cs = abs(fract(r * 1.1 - uTime * 0.32) - 0.5), cl = smoothstep(0.045, 0.0, 0.5 - cs);
+            float sw = exp(-pow((fract(uTime * 0.11) * 9.0 - r) * 2.6, 2.0));
+            L += mix(uA1, uA2, clamp(r * 0.1, 0.0, 1.0)) * (cl * (0.05 + 0.28 * uBL.x + 0.1 * uBeat) + sw * 0.22);
+          }
+          if (uPulseOn > 0.5) for (int i = 0; i < 4; i++) {                // hit ripples: a ring leaves the exact point you struck and washes over the real walls
+            vec4 P = uPulse[i]; if (P.w > 3.2) continue; float pr = length(wp - P.xyz);
+            float rg = exp(-pow((pr - P.w * 5.2) * 5.0, 2.0)) * exp(-P.w * 1.7), core = exp(-pr * 2.6) * exp(-P.w * 9.0);
+            L += uPulseC[i] * (rg * 0.6 + core * 0.45);
+          }
         }
         L += mix(uA1, uA2, 0.5) * uWash * (ok ? 0.4 : 1.0);
         { float r0 = length(vUv - 0.5);                                  // pilot feedback: red rim when you are hit or in danger, gold when overdrive is on
@@ -6286,7 +6312,7 @@ const MR = {
         gl_FragDepth = (uOcc > 0.5 && ok) ? clamp(ndc * 0.5 + 0.5, 0.0, 1.0) : 1.0;
       }`;
     this.bgU = {
-      uDepth: { value: null }, uLayer: { value: 0 }, uRaw: { value: 0.001 }, uHasD: { value: 0 }, uFmt: { value: 0 }, uFlip: { value: 1 }, uOcc: { value: 0 }, uDim: { value: 0 }, uEdge: { value: 0 }, uWall: { value: 0 }, uWash: { value: 0 }, uAlert: { value: 0 }, uGold: { value: 0 },
+      uDepth: { value: null }, uLayer: { value: 0 }, uRaw: { value: 0.001 }, uHasD: { value: 0 }, uFmt: { value: 0 }, uFlip: { value: 1 }, uOcc: { value: 0 }, uDim: { value: 0 }, uEdge: { value: 0 }, uWall: { value: 0 }, uWash: { value: 0 }, uAlert: { value: 0 }, uGold: { value: 0 }, uSonar: { value: 0 }, uPulseOn: { value: 0 }, uBL: { value: new THREE.Vector3() }, uPulse: { value: [new THREE.Vector4(0, 0, 0, 9), new THREE.Vector4(0, 0, 0, 9), new THREE.Vector4(0, 0, 0, 9), new THREE.Vector4(0, 0, 0, 9)] }, uPulseC: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] },
       uKickAge: { value: 9 }, uStyle: { value: 0 }, uTint: { value: 1 }, uTime: U.uTime, uBeat: U.uBeat, uBright: U.uMRb, uBias: { value: 0.13 }, uNDBFNV: { value: new THREE.Matrix4() }, uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uProj: { value: new THREE.Matrix4() },
       uTexel: { value: new THREE.Vector2(0.01, 0.01) }, uA1: U.uA1, uA2: U.uA2, uHead: { value: new THREE.Vector3() }
     };
@@ -6309,6 +6335,7 @@ const MR = {
     this.safe = new THREE.Mesh(rg, cm(0x40ffd0)); this.safe.visible = false; this.safe.frustumCulled = false; this.safe.renderOrder = 4; scene.add(this.safe);
     this.ret = new THREE.Mesh(new THREE.RingGeometry(0.1, 0.16, 40).rotateX(-Math.PI / 2), cm(0xffffff)); this.ret.material.opacity = 0.9; this.ret.visible = false; this.ret.frustumCulled = false; this.ret.renderOrder = 4; scene.add(this.ret);
     if (typeof Pilot !== 'undefined') Pilot.init(this);
+    if (typeof Room !== 'undefined') Room.init(this);
     this.ready = true; this.apply(true);
   },
 
@@ -6382,6 +6409,7 @@ const MR = {
   },
   onGame(ev) {
     if (typeof Pilot !== 'undefined') Pilot.onGame(ev);
+    if (typeof Room !== 'undefined') Room.onGame(ev);
     if (!this.on) return;
     if (ev.k === 'drop') this.burst('shatter'); else if (ev.k === 'phrase' || ev.k === 'power') this.burst('confetti');
   },
@@ -6392,7 +6420,7 @@ const MR = {
   },
   frame(dt, frame, ref) {
     if (!this.ready) return; const g = Game, S = Settings, U = R.U, B = this.bgU, playing = g.state === 'playing';
-    if (!this.on && !this.fake) { this.apply(); if (typeof Pilot !== 'undefined') Pilot.frame(dt, 0, playing); return; }
+    if (!this.on && !this.fake) { this.apply(); if (typeof Pilot !== 'undefined') Pilot.frame(dt, 0, playing); if (typeof Room !== 'undefined') Room.off(); return; }
     // world strength: a clear room in the menus, the full trip on drops and star power, and the quick toggle for a straight return to VR
     let t = this.quick ? 1 : playing ? S.mrWorld : Math.min(S.mrWorld, 0.12);
     if (!this.quick && playing) t = Math.min(1, t + 0.28 * (R.od || 0) + 0.3 * (R.dropE || 0));
@@ -6417,7 +6445,7 @@ const MR = {
     this.ret.visible = !!this.placing && !!(this.hit.right || this.hit.left);
     if (this.ret.visible) { const h = this.hit.right || this.hit.left; this.ret.position.set(h.x, h.y + 0.01, h.z); this.ret.scale.setScalar(1 + 0.15 * Math.sin(performance.now() * 0.008)); }
     // ---- hands, shapes, shards, ring ----
-    this.hands(dt, v); this.orbit(dt, v, playing); this.shardStep(dt); this.safeRing(dt, playing); if (typeof Pilot !== 'undefined') Pilot.frame(dt, v, playing);
+    this.hands(dt, v); this.orbit(dt, v, playing); this.shardStep(dt); this.safeRing(dt, playing); if (typeof Pilot !== 'undefined') Pilot.frame(dt, v, playing); if (typeof Room !== 'undefined') Room.frame(dt, v, playing);
   },
   readDepth(frame, ref) {
     try {
@@ -6623,6 +6651,118 @@ const Pilot = {
     else if (g.nextCorner) { c.font = '800 15px system-ui'; c.fillStyle = blink ? '#ffd34d' : '#ff8a3c'; c.fillText((g.nextCorner.dir > 0 ? 'TURN RIGHT >>' : '<< TURN LEFT'), W / 2, H + 50); }
     else if (g.odActive) { c.font = '800 15px system-ui'; c.fillStyle = '#ffd34d'; c.fillText('OVERDRIVE', W / 2, H + 50); }
     c.restore(); this.tex.needsUpdate = true;
+  }
+};
+
+// ===== ROOM LAYER: the music, drawn into your real room =====
+// Passthrough finally gets used as a stage. A skyline of spectrum bars stands on your real floor, a circular visualiser breathes under your feet,
+// every hit sends a ripple from the exact spot you struck across the real walls (the depth shader in 10_z_mr.js draws it), a sonar scan sweeps the room,
+// and with hands only you can clap to fire overdrive. Real objects hide the bars (the room depth is written first), so the show lives inside your space.
+const ROOM_BARS = 48, ROOM_FB = 16;
+const Room = {
+  ready: false, e: new Float32Array(ROOM_BARS), fe: new Float32Array(ROOM_FB), pul: [], farT: -9, clapAt: -9, vmax: 0, pd: 1, st: '', intro: 0, fa: 0, alpha: 0,
+  init(mr) {
+    this.mr = mr; const V = THREE, U = R.U, scene = mr.scene, ad = { transparent: true, depthWrite: false, blending: V.CustomBlending, blendEquation: V.AddEquation, blendSrc: V.SrcAlphaFactor, blendDst: V.OneFactor, blendSrcAlpha: V.ZeroFactor, blendDstAlpha: V.OneFactor };
+    for (let i = 0; i < 4; i++) this.pul.push({ age: 9, c: [1, 1, 1] });
+    this.fq = new V.Vector3(); this.rq = new V.Vector3(); this.rAng = new Float32Array(ROOM_BARS); for (let i = 0; i < ROOM_BARS; i++) this.rAng[i] = i / ROOM_BARS * 6.2832;
+    // ---- skyline: 48 instanced bars on a ring around the play area ----
+    const bg = new V.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), aE = new V.InstancedBufferAttribute(new Float32Array(ROOM_BARS), 1).setUsage(V.DynamicDrawUsage); bg.setAttribute('aE', aE);
+    const mat = new V.ShaderMaterial(Object.assign({
+      uniforms: { uA1: U.uA1, uA2: U.uA2, uMRb: U.uMRb, uBeat: U.uBeat, uAlpha: { value: 0 } },
+      vertexShader: 'attribute float aE; varying float vY, vE; void main() { vY = position.y; vE = aE; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }',
+      fragmentShader: 'precision highp float; uniform vec3 uA1, uA2; uniform float uMRb, uAlpha, uBeat; varying float vY, vE; void main() { vec3 c = mix(uA1, uA2, vY) * (0.1 + vE * 0.8) * (0.35 + 0.65 * smoothstep(0.0, 0.18, vY)); c += mix(uA1, vec3(1.0), 0.6) * smoothstep(0.9, 1.0, vY) * (0.12 + 0.35 * vE); gl_FragColor = vec4(c * uMRb, uAlpha * (0.5 + 0.5 * min(1.0, vE * 1.4 + uBeat * 0.3))); }'
+    }, ad, { side: V.DoubleSide }));
+    const im = this.sky = new V.InstancedMesh(bg, mat, ROOM_BARS); im.instanceMatrix.setUsage(V.DynamicDrawUsage); im.frustumCulled = false; im.visible = false; im.renderOrder = 4; scene.add(im); this.skyAE = aE;
+    // ---- floor visualiser: concentric spectrum rings, spokes, a kick shockwave and the hit ripples ----
+    const fm = new V.ShaderMaterial(Object.assign({
+      uniforms: { uA1: U.uA1, uA2: U.uA2, uMRb: U.uMRb, uBeat: U.uBeat, uTime: U.uTime, uAlpha: { value: 0 }, uAge: { value: 9 }, uB: { value: new Array(ROOM_FB).fill(0) }, uC: { value: new V.Vector2() }, uPulse: mr.bgU.uPulse, uPulseC: mr.bgU.uPulseC },
+      vertexShader: 'varying vec2 vP; void main() { vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `precision highp float; uniform vec3 uA1, uA2; uniform float uMRb, uBeat, uTime, uAlpha, uAge; uniform float uB[${ROOM_FB}]; uniform vec2 uC; uniform vec4 uPulse[4]; uniform vec3 uPulseC[4]; varying vec2 vP;
+        void main() {
+          float r = length(vP), idx = r / 0.26, ang = atan(vP.y, vP.x); int bi = int(clamp(floor(idx), 0.0, ${ROOM_FB - 1}.0)); float e = uB[bi];
+          float line = smoothstep(0.5, 0.36, abs(fract(idx) - 0.5)) * step(idx, ${ROOM_FB}.0), fade = smoothstep(4.2, 2.6, r) * smoothstep(0.12, 0.5, r);
+          vec3 c = mix(uA1, uA2, clamp(idx / ${ROOM_FB}.0, 0.0, 1.0)) * line * (0.04 + e * 1.4);
+          float sp = smoothstep(0.035, 0.0, abs(fract(ang * 12.0 / 6.2832 + uTime * 0.03) - 0.5) - 0.465); c += mix(uA2, uA1, 0.5) * sp * (0.05 + 0.2 * uBeat) * step(idx, ${ROOM_FB}.0);
+          c += mix(uA1, uA2, 0.5) * exp(-pow((r - uAge * 4.2) * 3.2, 2.0)) * exp(-uAge * 1.5) * 0.95;
+          for (int i = 0; i < 4; i++) { vec4 P = uPulse[i]; if (P.w > 3.2) continue; float pr = length(vP + uC - P.xz); c += uPulseC[i] * (exp(-pow((pr - P.w * 4.6) * 3.2, 2.0)) * exp(-P.w * 1.6) * 0.9 + exp(-pr * 3.0) * exp(-P.w * 7.0)); }
+          gl_FragColor = vec4(c * fade * uMRb, uAlpha);
+        }`
+    }, ad, { side: V.DoubleSide }));
+    const fl = this.floor = new V.Mesh(new V.CircleGeometry(4.4, 56).rotateX(-Math.PI / 2), fm); fl.frustumCulled = false; fl.visible = false; fl.renderOrder = 3; scene.add(fl);
+    this.ready = true;
+  },
+  col(k) { const A = R.curTheme; return k === 'a1' ? [A.a1.x, A.a1.y, A.a1.z] : k === 'a2' ? [A.a2.x, A.a2.y, A.a2.z] : k === 'gold' ? [1, 0.8, 0.3] : k === 'red' ? [1, 0.12, 0.15] : [1, 1, 1]; },
+  emit(x, y, z, c) {                                                   // reuse the oldest ripple slot
+    if (!this.ready) return; let o = this.pul[0]; for (const p of this.pul) if (p.age > o.age) o = p;
+    o.age = 0; o.x = x; o.y = y; o.z = z; o.c = c;
+  },
+  at(ev) {                                                             // where in the room did this happen?
+    const hd = Input.head; if (ev.px !== undefined || ev.side !== undefined) { const sd = typeof ev.side === 'number' ? (ev.side ? 'right' : 'left') : ev.side, h = Input.hands[sd]; if (h && h.o) return { x: h.o.x, y: h.o.y, z: h.o.z }; }
+    const x = ev.x || 0; return { x: hd.x + this.fq.x * 1.5 + this.rq.x * x * 0.45, y: hd.y - 0.25, z: hd.z + this.fq.z * 1.5 + this.rq.z * x * 0.45 };
+  },
+  onGame(ev) {
+    if (!this.ready || !MR.on || !Settings.mrHitFx) return; const k = ev.k, hd = Input.head;
+    if (k === 'hit' || k === 'saber' || k === 'smash') { const p = this.at(ev); this.emit(p.x, p.y, p.z, this.col(ev.perfect || ev.good ? 'gold' : 'a1')); }
+    else if (k === 'bad' || k === 'saberMine' || k === 'saberWrong') { const p = this.at(ev); this.emit(p.x, p.y, p.z, this.col('red')); }
+    else if (k === 'power') this.emit(hd.x, hd.y - 0.3, hd.z, this.col('gold'));
+    else if (k === 'drop') this.emit(hd.x, hd.y - 0.3, hd.z, this.col('w'));
+    else if (k === 'phrase' || k === 'corner' || k === 'tick') { const p = this.at(ev); this.emit(p.x, p.y, p.z, this.col('a2')); }
+  },
+  off() {
+    if (!this.ready) return; this.sky.visible = false; this.floor.visible = false; const B = this.mr.bgU; B.uSonar.value = 0; B.uPulseOn.value = 0; for (const p of this.pul) p.age = 9; this.alpha = 0;
+  },
+  frame(dt, v, playing) {
+    if (!this.ready) return; const mr = this.mr, S = Settings, g = Game, B = mr.bgU, U = R.U, w = R.world;
+    if (!mr.on || !w) { this.off(); return; }
+    this.fq.set(0, 0, -1).applyQuaternion(w.quaternion); this.rq.set(1, 0, 0).applyQuaternion(w.quaternion);
+    // ---- the lights the shader needs: bass / mid / treble, sonar, and the ripple list ----
+    B.uBL.value.set(clamp(U.uLow.value, 0, 1.4), clamp(U.uMd.value, 0, 1.4), clamp(U.uHigh.value, 0, 1.4));
+    B.uSonar.value = (S.mrSonar && !!mr.depthTex && R.quality < 2 && v < 0.99) ? 1 : 0;
+    const ripple = S.mrHitFx && !!mr.depthTex && v < 0.99; let live = 0, A = this.col('a1');
+    for (let i = 0; i < 4; i++) { const p = this.pul[i]; p.age += dt; const q = B.uPulse.value[i], c = B.uPulseC.value[i]; if (p.age < 3.2) { q.set(p.x, p.y, p.z, p.age); c.set(p.c[0], p.c[1], p.c[2]); live++; } else q.w = 9; }
+    B.uPulseOn.value = ripple && live ? 1 : 0;
+    // a scan ripple rolls out at the start of every show and again on a restart
+    if (g.state === 'playing' && this.st !== 'playing' && S.mrHitFx) { const hd = Input.head; this.emit(hd.x, hd.y - 0.5, hd.z, this.col('a2')); }
+    this.st = g.state;
+    // ---- spectrum energies ----
+    const songT = g.songT || 0, a = g.a, pulse = R.pulse || 0, NB = a && a.NB ? a.NB : 16, ps = g.state === 'playing' || g.state === 'paused', t = ps ? songT : performance.now() * 0.001;
+    const kk = R.kick || 0, sm = Math.exp(-dt * 7);
+    for (let i = 0; i < ROOM_BARS; i++) { const k = i < ROOM_BARS / 2 ? i : ROOM_BARS - 1 - i, b = Math.min(NB - 1, Math.floor(k / (ROOM_BARS / 2) * NB * 0.92)), val = clamp(R.bandVal(a, t, b, pulse) * 1.15 + 0.25 * kk * (k < 6 ? 1 : 0.3), 0, 1.3); this.e[i] = Math.max(val, this.e[i] * sm); }
+    for (let i = 0; i < ROOM_FB; i++) { const b = Math.min(NB - 1, Math.floor(i / ROOM_FB * NB * 0.92)), val = clamp(R.bandVal(a, t, b, pulse) * 1.1, 0, 1.2); this.fe[i] = Math.max(val, this.fe[i] * sm); }
+    const fy = (mr.place ? mr.place.y : w.position.y) + 0.012, cx = w.position.x, cz = w.position.z, vis = clamp((0.995 - v) * 1.7, 0, 1), base = playing ? 1 : 0.4;
+    this.alpha += (vis * base - this.alpha) * Math.min(1, dt * 3);
+    // ---- skyline ----
+    const sk = this.sky, on1 = S.mrSky && this.alpha > 0.02; sk.visible = on1;
+    if (on1) {
+      const fa = Math.atan2(this.fq.z, this.fq.x), arr = sk.instanceMatrix.array, R0 = 2.65; sk.material.uniforms.uAlpha.value = this.alpha;
+      for (let i = 0; i < ROOM_BARS; i++) {
+        let dlt = this.rAng[i] - fa; dlt = Math.abs(Math.atan2(Math.sin(dlt), Math.cos(dlt)));
+        const gap = smooth(clamp((dlt - 0.42) / 0.4, 0, 1)), h = (0.04 + this.e[i] * 1.55) * gap + 0.003, ang = this.rAng[i], o = i * 16, c = Math.cos(ang), s = Math.sin(ang), wd = 0.2 * (0.35 + 0.65 * gap), x = cx + c * R0, z = cz + s * R0;
+        // rotate the bar to face the centre: local x -> tangent, local z -> radial
+        arr[o] = -s * wd; arr[o + 1] = 0; arr[o + 2] = c * wd; arr[o + 3] = 0;
+        arr[o + 4] = 0; arr[o + 5] = h; arr[o + 6] = 0; arr[o + 7] = 0;
+        arr[o + 8] = c * wd; arr[o + 9] = 0; arr[o + 10] = s * wd; arr[o + 11] = 0;
+        arr[o + 12] = x; arr[o + 13] = fy; arr[o + 14] = z; arr[o + 15] = 1;
+        this.skyAE.array[i] = this.e[i] * gap;
+      }
+      sk.instanceMatrix.needsUpdate = true; this.skyAE.needsUpdate = true;
+    }
+    // ---- floor ----
+    const fl = this.floor, on2 = S.mrFloor && this.alpha > 0.02; fl.visible = on2;
+    if (on2) { fl.position.set(cx, fy, cz); const u = fl.material.uniforms; u.uAlpha.value = this.alpha; u.uAge.value = mr.ringAge; u.uC.value.set(cx, cz); for (let i = 0; i < ROOM_FB; i++) u.uB.value[i] = this.fe[i]; }
+    // ---- clap for overdrive (hands only) ----
+    this.clapTick(dt, playing);
+  },
+  clapTick(dt, playing) {
+    const S = Settings, g = Game, L = Input.hands.left, Rr = Input.hands.right, now = performance.now() * 0.001;
+    if (!(S.mrClap && playing && !g.saber && L && Rr && L.o && Rr.o && MR.handsOnly())) { this.pd = 1; this.vmax = 0; return; }
+    const d = Math.hypot(L.o.x - Rr.o.x, L.o.y - Rr.o.y, L.o.z - Rr.o.z), closing = (this.pd - d) / Math.max(0.004, dt); this.pd = d;
+    if (d > 0.34) this.farT = now; this.vmax = Math.max(this.vmax * Math.exp(-dt * 5), closing);
+    if (d < 0.14 && now - this.farT < 0.5 && this.vmax > 1.3 && now - this.clapAt > 1.2 && !(Input.selDown.left && Input.selDown.right)) {
+      this.clapAt = now; this.vmax = 0; const hd = Input.head; Input.push('overdrive');
+      const mx = (L.o.x + Rr.o.x) / 2, my = (L.o.y + Rr.o.y) / 2, mz = (L.o.z + Rr.o.z) / 2; this.emit(mx, my, mz, this.col('gold')); if (this.mr.burst) this.mr.burst('confetti');
+      try { UI.toast('Clap: overdrive'); } catch (e) {}
+    }
   }
 };
 
