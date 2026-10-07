@@ -17,6 +17,8 @@ html,body{margin:0;height:100%;overscroll-behavior:none;-webkit-touch-callout:no
 #tpause{top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));width:50px;height:50px;border-radius:25px;background:rgba(34,29,74,.7);font-size:20px}
 #tod{right:max(16px,env(safe-area-inset-right));bottom:max(18px,env(safe-area-inset-bottom));width:92px;height:92px;border-radius:50%;background:rgba(34,29,74,.62);box-shadow:inset 0 0 0 3px rgba(25,227,255,.55)}
 #tfire{position:fixed;display:none;left:max(16px,env(safe-area-inset-left));bottom:max(18px,env(safe-area-inset-bottom));width:92px;height:92px;border-radius:50%;border:0;color:#eef3ff;font:800 15px system-ui,sans-serif;letter-spacing:.06em;touch-action:none;background:rgba(74,24,60,.62);box-shadow:inset 0 0 0 3px rgba(255,63,208,.6)}
+#jbar{position:fixed;display:none;gap:8px;left:50%;transform:translateX(-50%);bottom:max(14px,env(safe-area-inset-bottom))}
+#jbar button{border:0;border-radius:22px;min-width:44px;height:44px;padding:0 12px;background:rgba(34,29,74,.7);color:#eef3ff;font:700 16px system-ui;touch-action:none}
 #tfire:active{background:rgba(255,63,208,.5)}
 #tod.rdy{background:linear-gradient(135deg,#19e3ff,#ff3fd0);color:#06041a;box-shadow:0 0 28px #ff3fd0}
 #tfs{position:fixed;display:none;z-index:5;top:max(10px,env(safe-area-inset-top));left:max(10px,env(safe-area-inset-left));width:44px;height:44px;border-radius:22px;border:0;background:rgba(34,29,74,.62);color:#eef3ff;font:700 22px system-ui;touch-action:none;-webkit-tap-highlight-color:transparent;opacity:.8}
@@ -43,7 +45,7 @@ html,body{margin:0;height:100%;overscroll-behavior:none;-webkit-touch-callout:no
 <canvas id="gl"></canvas>
 <canvas id="ui"></canvas>
 <canvas id="hud"></canvas>
-<button id="tfire">FIRE</button><button id="tpause">II</button><button id="tod">★</button><button id="tfs" aria-label="Full screen">⛶</button>
+<div id="jbar"><button data-a="jprev">◀</button><button data-a="jnext">World ▶</button><button data-a="jrollL">↺</button><button data-a="jrollR">↻</button><button data-a="jdrop">⚡</button><button data-a="jwarp">🌀</button><button data-a="jtube">◎</button><button data-a="jauto">A</button></div><button id="tfire">FIRE</button><button id="tpause">II</button><button id="tod">★</button><button id="tfs" aria-label="Full screen">⛶</button>
 <div id="hell"></div>
 <div id="rot"><b>Rotate your phone</b><div>DMT Surf plays best in landscape</div><button id="rotgo">Play anyway</button></div>
 <div id="warn" role="alertdialog" aria-labelledby="wh"><div class="box"><div class="ic">&#9888;</div><h1 id="wh">STROBE &amp; FLASHING WARNING</h1>
@@ -415,6 +417,31 @@ function frameAt(a, t) { return clamp((t * a.sr - A_N * 0.5) / A_HOP, 0, Math.ma
 function bandAt(a, t, b) { if (!a.nF) return 0; const x = frameAt(a, t), i = x | 0, fr = x - i, o = i * a.NB + b; return (a.bands[o] + (a.bands[o + a.NB] - a.bands[o]) * fr) / 200; }
 function loudAt(a, t) { if (!a.nF) return 0; const x = frameAt(a, t), i = x | 0, fr = x - i; return (a.loud[i] + (a.loud[Math.min(a.nF - 1, i + 1)] - a.loud[i]) * fr) / 200; }
 function curveAt(a, t) { const x = clamp(t / 0.5, 0, a.curve.length - 1.001), i = x | 0; return a.curve[i] + (a.curve[i + 1] - a.curve[i]) * (x - i); }
+
+// ---- drop precision: the 0.5 s curve only says "around here", so find the real step in the full-resolution loudness and lock it to the beat grid ----
+function refineDrop(a, t) {
+  if (!a || !a.nF || a.live) return t;
+  const fps = a.sr / A_HOP, nF = a.nF, W = Math.max(2, Math.round(0.22 * fps)), L = a.loud, B = a.bands, NB = a.NB;
+  const e = (f) => { f = clamp(f | 0, 0, nF - 1); let lo = 0; for (let b = 0; b < 4; b++) lo += B[f * NB + b]; return L[f] + lo / 4 * 0.7; };
+  const avg = (f0, f1) => { let s = 0, n = 0; for (let f = f0; f < f1; f++) { s += e(f); n++; } return n ? s / n : 0; };
+  const fc = Math.round(frameAt(a, t)), R = Math.round(0.8 * fps); let bf = fc, bv = -1;
+  for (let f = Math.max(W, fc - R); f <= Math.min(nF - W - 1, fc + R); f++) { const v = (avg(f, f + W) - avg(f - W, f)) * (1 - 0.25 * Math.abs(f - fc) / R); if (v > bv) { bv = v; bf = f; } }
+  let r = (bf * A_HOP + A_N * 0.5) / a.sr;
+  const per = 60 / a.bpm;
+  if (per > 0.2 && per < 1.2) {                                  // the drop lands on a downbeat: snap to the nearest bar line, else the nearest beat
+    const o0 = a.phase + (a.down | 0) * per, bar = per * 4, nb = o0 + Math.round((r - o0) / bar) * bar, nbt = a.phase + Math.round((r - a.phase) / per) * per;
+    if (Math.abs(nb - r) < 0.34) r = nb; else if (Math.abs(nbt - r) < 0.14) r = nbt;
+  }
+  return Math.max(0, r);
+}
+// how long the tension has been building before time t (seconds): treble climbing while the bass thins out, walking back until it stops
+function riseLen(a, t) {
+  if (!a || !a.nF || a.live) return 3.2;
+  const ten = (u) => { let hi = 0, lo = 0; for (let b = 11; b < 16; b++) hi += bandAt(a, u, b); for (let b = 0; b < 4; b++) lo += bandAt(a, u, b); return hi / 5 - 0.6 * lo / 4 + 0.5 * curveAt(a, u); };
+  let k = t - 0.5, cur = ten(k), n = 0, miss = 0;
+  while (k > 1 && n < 24) { const pv = ten(k - 0.5); if (pv <= cur + 0.004) { miss = 0; } else { if (++miss >= 2) break; } if (pv < 0.02) break; cur = pv; k -= 0.5; n++; }
+  return clamp(t - k, 3.2, 12);
+}
 
 // ===== CHART GENERATION: onsets -> playable notes =====
 const LANES = 5;
@@ -970,21 +997,28 @@ const TrackShape = {
     return d0 * (1 - f) + d1 * f;
   },
   I(t) { return this.a ? curveAt(this.a, Math.max(0, t)) : 0.55 + 0.3 * Math.sin(t * 0.21); },
+  secBlend(t) {                                          // which two sections' character to mix at time t: each section hands over to the next across ~5 s, so no bend or hill ever snaps at a section change
+    const i = this.secAt(t), nx = this.secs[i], pv = i > 0 ? this.secs[i - 1] : -9, W = 2.5;
+    if (nx !== undefined && nx - t < W) return [i, i + 1, 0.5 * smooth(1 - (nx - t) / W)];
+    if (i > 0 && t - pv < W) return [i, i - 1, 0.5 * (1 - smooth((t - pv) / W))];
+    return [i, i, 0];
+  },
   curv(t) {                                              // 1/m: how hard the road bends at song time t
-    const I = Math.min(1.25, this.I(t)), w = (t - this.ph) / this.bar, si = this.secAt(t);
-    return this.dirAt(t) * (0.0010 + 0.0036 * I) + 0.0046 * I * Math.sin(6.2832 * w / 8 + 0.9 * si) + 0.0030 * I * I * Math.sin(6.2832 * w / 3 + 1.7 * si) + (this.corners.length ? this.corn(t) : 0) + this.bankE(t) * this.dirAt(t) * 0.0036;
+    const I = Math.min(1.25, this.I(t)), w = (t - this.ph) / this.bar, B = this.secBlend(t), f = (si) => 0.0046 * I * Math.sin(6.2832 * w / 8 + 0.9 * si) + 0.0030 * I * I * Math.sin(6.2832 * w / 3 + 1.7 * si);
+    return this.dirAt(t) * (0.0010 + 0.0036 * I) + f(B[0]) * (1 - B[2]) + f(B[1]) * B[2] + (this.corners.length ? this.corn(t) : 0) + this.bankE(t) * this.dirAt(t) * 0.0036;
   },
   bankE(t) {                                             // a few sections are banked sweepers: a long, steady curve you lean into (the renderer rolls the world to match)
     if (!this.a || this.noBank) return 0; const si = this.secAt(t), h = ((si * 40503 + 17) >>> 0) % 100 / 100; if (si < 1 || h > 0.34 || this.I(t) < 0.3) return 0;
     const s0 = this.secs[si - 1], s1 = this.secs[si] === undefined ? this.a.dur : this.secs[si]; if (s1 - s0 < 12) return 0;
     return smooth(clamp((t - s0 - 3) / 3, 0, 1)) * smooth(clamp((s1 - 3 - t) / 3, 0, 1));
   },
-  slope(t) {                                             // rise per metre: rolling hills + a dive into every loud part and a climb out of every quiet one
-    const I = Math.min(1.25, this.I(t)), w = (t - this.ph) / this.bar, si = this.secAt(t), ih = 0.4 + 0.6 * Math.min(1, I);
-    let s = 0.42 * ih * (0.58 * Math.sin(6.2832 * w / 6 + 1.3 * si) + 0.42 * Math.sin(6.2832 * w / 2.5 + 2.1 * si));
-    { const gh = ((si * 2654435761) >>> 0) % 100 / 100, GS = gh < 0.3 ? 0 : gh < 0.62 ? 0.8 : gh < 0.86 ? 1.25 : 1.7; s += 0.3 * GS * ih * Math.sin(6.2832 * w / (9 + (si % 3) * 5) + si * 1.7); }   // grand swells: some sections climb and plunge far harder than the rolling hills
-    if (this.a) s -= 0.5 * clamp((curveAt(this.a, Math.max(0, t + 1.5)) - curveAt(this.a, Math.max(0, t - 0.5))) * 1.7, -1, 1);
-    return clamp(s, -1.0, 0.8);
+  slope(t) {                                             // rise per metre: rolling hills, gentler than before (a steep dive made the blocks hard to read), with each section's hills handing over smoothly to the next
+    const I = Math.min(1.25, this.I(t)), w = (t - this.ph) / this.bar, ih = 0.4 + 0.6 * Math.min(1, I), B = this.secBlend(t);
+    const f = (si) => { let s = 0.42 * ih * (0.58 * Math.sin(6.2832 * w / 6 + 1.3 * si) + 0.42 * Math.sin(6.2832 * w / 2.5 + 2.1 * si));
+      const gh = ((si * 2654435761) >>> 0) % 100 / 100, GS = gh < 0.3 ? 0 : gh < 0.62 ? 0.8 : gh < 0.86 ? 1.15 : 1.4; return s + 0.26 * GS * ih * Math.sin(6.2832 * w / (9 + (si % 3) * 5) + si * 1.7); };          // grand swells: some sections climb and plunge harder than others
+    let s = f(B[0]) * (1 - B[2]) + f(B[1]) * B[2];
+    if (this.a) s -= 0.34 * clamp((curveAt(this.a, Math.max(0, t + 2.5)) - curveAt(this.a, Math.max(0, t - 1.5))) * 1.1, -1, 1);          // a gentle dive into a loud part, a gentle climb out of a quiet one (wider window, softer)
+    return clamp(s, -0.7, 0.6);
   }
 };
 
@@ -1063,7 +1097,9 @@ function buildSurges(a) {
     if (d > 0.14 && after > 0.38 && t - last > 10 && t > 6) { let j = i; for (let k = i; k < Math.min(C.length - 2, i + 8); k++) if (C[k + 1] - C[k] > C[j + 1] - C[j]) j = k; out.push({ t: Math.max(0, j * 0.5 + 0.25), s: clamp(d / 0.35, 0.45, 1), fired: false }); last = t; i += 8; }
   }
   for (const t of (a.sections || [])) if (t > 6 && !out.some(o => Math.abs(o.t - t) < 6)) { const i = Math.round(t / 2 * 4) / 2 | 0, d = mean(i * 2 / 1, i * 2 + 6) - mean(i * 2 - 12, i * 2); if (d > 0.06) out.push({ t, s: clamp(d / 0.3, 0.4, 0.8), fired: false }); }
-  return out.sort((x, y) => x.t - y.t);
+  for (const o of out) { o.t = refineDrop(a, o.t); o.rise = riseLen(a, o.t); }
+  out.sort((x, y) => x.t - y.t); for (let i = out.length - 1; i > 0; i--) if (out[i].t - out[i - 1].t < 4) out.splice(i, 1);
+  return out;
 }
 function shapeChart(chart, a, diffIdx, corners, infos, key) {
   let notes = chart.notes.slice(); const rnd = mulberry32(hashStr(key || 'x') + diffIdx * 31 + 7), W0 = 2.0, W1 = 0.35;
@@ -1169,7 +1205,7 @@ const Game = {
     TrackShape.set(this.a, this.secs, this.secTurn, this.corners, this.speed);
     this.cornerIdx = 0; this.cornersOK = 0; this.cornersAll = 0; this.nextCorner = null; this.shields = this.shieldMax = 3; this.inv = 0; this.nextShieldAt = 28; this.bt = 0; this.yaw = 0; this.wallsClean = 0; this.hurts = 0;
     this.holds = this.notes.filter(n => n.type === NOTE_HOLD); this.holdIdx = 0; this.holding = false; this.streaks = this.drops = this.tickGot = this.tickAll = 0;
-    this.heading = 0; this.cx = 0; this.cy = 0; this.secIdx = 0; this.sceneIdx = this.secScene[0]; this.sceneFlash = 3.2; this.turnDir = this.secTurn[0];
+    this.heading = 0; this.cx = 0; this.cy = 0; this.secIdx = 0; this.jLock = false; this.jWarp = false; this.jRoll = 0; this.jRollT = 0; this.jTube = 0; this.sceneIdx = this.secScene[0]; this.sceneFlash = 3.2; this.turnDir = this.secTurn[0];
     this.chaining = false; const pl0 = keep ? null : (typeof Party !== 'undefined' ? Party.leadFor() : null), lead = keep ? 1.6 : (pl0 != null ? pl0 : LEAD_IN); this.songT = -lead; this.wallStart = Date.now() + lead * 1000;
     if (keep) { for (const k of CARRY) this[k] = keep[k]; }
     AudioEng.applyVolumes();
@@ -1183,6 +1219,17 @@ const Game = {
   resume() { if (this.state !== 'paused') return; this.state = 'playing'; AudioEng.resume(); },
   quit() { AudioEng.holdSet(false, 2); TrackShape.set(null, [], [], [], 20); AudioEng.stop(); AudioEng.resume(); this.state = 'menu'; this.track = null; this.a = null; this.notes = []; },
 
+  jTool(k) {                                                           // Journey toolkit: the listener steers the show
+    if (!this.journey || this.state !== 'playing') return false;
+    const N = SCENES.length, msg = (t) => { try { UI.toast(t); } catch (e) {} };
+    if (k === 'next' || k === 'prev') { this.jLock = true; this.sceneIdx = (this.sceneIdx + (k === 'next' ? 1 : N - 1)) % N; this.sceneFlash = 3.2; this.emit({ k: 'scene', i: this.sceneIdx }); msg('World locked  ·  ' + ((SCENES[this.sceneIdx] || {}).name || '') + '  ·  U = auto'); }
+    else if (k === 'rollL' || k === 'rollR') { this.jRollT = (this.jRollT || 0) + (k === 'rollL' ? 1 : -1) * Math.PI * 2; AudioEng.power && 0; }
+    else if (k === 'auto') { this.jLock = false; this.secIdx = -1; msg('Worlds follow the music'); }
+    else if (k === 'drop') { this.surges.push({ t: this.songT + 0.6, s: 0.95 }); msg('Drop!'); }
+    else if (k === 'warp') { this.jWarp = !this.jWarp; msg(this.jWarp ? 'Warp ON' : 'Warp off'); }
+    else if (k === 'tube') { this.jTube = ((this.jTube | 0) + 1) % 3; msg(['Tunnels: auto', 'Tunnels: always', 'Tunnels: off'][this.jTube]); }
+    else return false; return true;
+  },
   activateOverdrive() {
     if (this.state !== 'playing' || this.odActive || this.od < 0.5) return false;          // star power: half a meter is enough, a fuller meter lasts longer
     this.odActive = true; this.odLeft = OD_TIME * clamp(this.od, 0.5, 1); this.od = this.odLeft / OD_TIME; AudioEng.power(); this.emit({ k: 'power' });
@@ -1577,7 +1624,7 @@ const Game = {
       // ship follows the target with a capped speed (so lane moves read as physical)
       if (Queue.run && !Queue.pre && this.a && this.songT > this.a.dur - 30 && Queue.upcoming()) { const nx = Queue.upcoming(); Queue.pre = Library.getBuffer(nx).then(b => ({ it: nx, buf: b })).catch(() => null); }
       { let rb = 0, bl = 0; for (const s of this.surges) { const dt0 = this.songT - s.t;
-          if (dt0 > -3.2 && dt0 < 0) bl = Math.max(bl, Math.pow(1 + dt0 / 3.2, 1.6) * s.s);                              // the riser: tension builds over the last 3 seconds, steeply at the end
+          const RS = s.rise || 3.2; if (dt0 > -RS && dt0 < 0) bl = Math.max(bl, Math.pow(1 + dt0 / RS, RS > 5 ? 2.2 : 1.6) * s.s);                              // the riser: tension builds over the last 3 seconds, steeply at the end
           else if (dt0 >= 0 && dt0 < 4.5) { rb = Math.max(rb, s.s * Math.exp(-dt0 * 0.85)); if (!s.fired && dt0 < 0.5) { s.fired = true; this.emit({ k: 'drop', s: s.s }); this.flash = Math.max(this.flash, 0.5 * s.s); this.shake = Math.max(this.shake, 0.35 * s.s); } } }
         const hy = clamp((this.intensity - 0.45) * 1.8, 0, 1) * 0.7;                                                    // a lingering lift for as long as the music stays big
         this.build += (bl - this.build) * Math.min(1, dt * 6); this.hype += (hy - this.hype) * Math.min(1, dt * 1.2); this.rush = Math.max(rb, this.hype) ; }
@@ -1617,9 +1664,11 @@ const Game = {
     if (a && (this.state === 'playing' || this.state === 'paused' || this.state === 'results')) {
       const t = this.songT;
       this.intensity += (curveAt(a, Math.max(0, t)) - this.intensity) * Math.min(1, dt * 3);
+      if (this.journey) { const d = (this.jRollT || 0) - (this.jRoll || 0); this.jRoll = (this.jRoll || 0) + Math.sign(d) * Math.min(Math.abs(d), (Math.abs(d) * 3.2 + 0.5) * dt); if (Math.abs(d) < 0.002 && this.jRollT) { this.jRoll = this.jRollT = 0; } }
       if (this.gRec && this.state === 'playing' && t >= 0) { const gi = (t * 10) | 0; if (gi < 6000) { this.gRec.lat[gi] = Math.round(clamp(this.lat, -2.2, 2.2) * 50); this.gRec.alt[gi] = Math.round(clamp(this.alt || 0, 0, 1) * 100); this.gRec.sc[gi] = Math.min(32767, Math.round(this.score / 10)); } }
       let sI = 0; for (const x of this.secs) { if (x <= t + 2.0) sI++; else break; }          // the next world opens ahead of the section, so it has fully arrived when the chorus lands
-      if (sI !== this.secIdx) { this.secIdx = sI; this.sceneIdx = this.secScene[Math.min(sI, this.secScene.length - 1)]; this.sceneFlash = 3.2; this.turnDir = this.secTurn[Math.min(sI, this.secTurn.length - 1)]; this.emit({ k: 'scene', i: this.sceneIdx }); }
+      if (sI !== this.secIdx && this.jLock) this.secIdx = sI;
+      else if (sI !== this.secIdx) { this.secIdx = sI; this.sceneIdx = this.secScene[Math.min(sI, this.secScene.length - 1)]; this.sceneFlash = 3.2; this.turnDir = this.secTurn[Math.min(sI, this.secTurn.length - 1)]; this.emit({ k: 'scene', i: this.sceneIdx }); }
     } else if (!a) {
       const t = performance.now() * 0.001;
       this.songT = t; this.intensity += (0.22 + 0.05 * Math.sin(t * 0.15) - this.intensity) * Math.min(1, dt * 0.5);
@@ -1875,7 +1924,8 @@ function paletteFor(seed, i, hs) { // a fresh colour world for every section of 
 const LANE_COL = [[0.16, 0.85, 1.0], [0.24, 1.0, 0.60], [1.0, 0.88, 0.30], [1.0, 0.54, 0.24], [1.0, 0.31, 0.85]];
 const LANE_BANDS = [0, 3, 6, 10, 13, 16];
 const SH_N = 124, SH_H = 1.6, SH_D0 = -6.4;
-const FAR = 180, ROW_N = 104, ROW_C = 11, GROUND_N = 68, GROUND_C = 9, ROAD_HALF = 2.85;
+const PERSONA = [[1.3, 0.75, 0.8], [0.85, 1.3, 0.9], [0.8, 0.85, 1.8], [1, 1, 1], [1.12, 1, 1.25], [0.95, 1.2, 1.1], [1.2, 0.9, 0.7]];
+const FAR = 205, ROW_N = 104, ROW_C = 11, GROUND_N = 68, GROUND_C = 9, ROAD_HALF = 2.85;
 const QUALITY_TIERS = [
   { pillars: 32, particles: 160, gates: 40, motes: 150, trip: 1, dual: 1, name: 'High' },
   { pillars: 22, particles: 100, gates: 24, motes: 90, trip: 0, dual: 0, name: 'Medium' },
@@ -3136,7 +3186,7 @@ const R = {
   buildRoad() {
     const g = this.roadGeo = this.ribbon(ROW_N, ROW_C), n = ROW_N * ROW_C;
     this.rowD = new Float32Array(ROW_N);
-    for (let i = 0; i < ROW_N; i++) this.rowD[i] = -6 + (FAR + 6) * Math.pow(i / (ROW_N - 1), 1.6);
+    for (let i = 0; i < ROW_N; i++) this.rowD[i] = -6 + (FAR + 6) * Math.pow(i / (ROW_N - 1), 1.42);
     this.colX = new Float32Array(ROW_C); for (let j = 0; j < ROW_C; j++) this.colX[j] = (j / (ROW_C - 1) * 2 - 1) * ROAD_HALF; // lane units
     g.setAttribute('aCol', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aT', new THREE.BufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
@@ -3265,7 +3315,7 @@ const R = {
 
   buildGround() {
     const g = this.groundGeo = this.ribbon(GROUND_N, GROUND_C), n = GROUND_N * GROUND_C;
-    this.gD = new Float32Array(GROUND_N); for (let i = 0; i < GROUND_N; i++) this.gD[i] = -8 + (FAR + 20) * Math.pow(i / (GROUND_N - 1), 1.5);
+    this.gD = new Float32Array(GROUND_N); for (let i = 0; i < GROUND_N; i++) this.gD[i] = -8 + (FAR + 20) * Math.pow(i / (GROUND_N - 1), 1.36);
     this.gX = new Float32Array([-110, -46, -19, -7.6, 0, 7.6, 19, 46, 110]);
     this.gProf = [0.4, 1.0, 0.28, 0, 0, 0, 0.28, 1.0, 0.4];
     g.setAttribute('aD', new THREE.BufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
@@ -3960,9 +4010,10 @@ const R = {
     const t0 = performance.now(), g = Game, A = g.a, U = this.U, sc = this.sc;
     const songT = g.songT, speed = g.speed || 20;
     this.lightTick(dt, g, songT, A);
-    { const rs = Settings.cMotion || Settings.cSteady ? 0 : g.rush; this.rushT = ((this.rushT || 0) + dt * speed * (1.0 * rs + 0.25 * (g.build || 0) + ((Settings.cMotion || Settings.cSteady) ? 0 : 1.5 * (this.od || 0) * (g.odActive ? 1 : 0) + 0.35 * clamp((g.intensity - 0.38) / 0.45, 0, 1)))) % 100000; }
+    { const rs = Settings.cMotion || Settings.cSteady ? 0 : Math.max(g.rush, g.jWarp ? 1.6 : 0); this.rushT = ((this.rushT || 0) + dt * speed * (1.0 * rs + 0.25 * (g.build || 0) + ((Settings.cMotion || Settings.cSteady) ? 0 : 1.5 * (this.od || 0) * (g.odActive ? 1 : 0) + 0.35 * clamp((g.intensity - 0.38) / 0.45, 0, 1)))) % 100000; }
     const travel = songT * speed + (this.rushT || 0);                                  // scenery runs faster than the notes in a rush: pure sensation of speed
     const bpm = A ? A.bpm : 124, phase = A ? A.phase : 0, period = 60 / bpm;
+    if (A && A.dbt === undefined) { A.dbt = true; if (A.onsets && A.nF && !A.live && A.bpm > 0) { const per0 = 60 / A.bpm; for (const o of A.onsets) { const k = Math.round((o.t - A.phase) / per0), r = o.t - (A.phase + k * per0); o.pos = Math.abs(r) < 0.13 * per0 ? (((k - (A.down | 0)) % 4) + 4) % 4 : -1; } } }          // where in the bar every hit falls (0 = the downbeat)
     if (A && A.beats === undefined) A.beats = (A.nF && A.onsets) ? buildBeats(A) : null;                 // adaptive beat map (built once per track)
     let bf = (((songT - phase) / period) % 1 + 1) % 1, lph = phase, lpd = period;
     { const B = A && A.beats; if (B && B.length > 4 && songT >= B[0] && songT < B[B.length - 1]) {
@@ -3975,9 +4026,13 @@ const R = {
     if (A && A.onsets && A.onsets.length && g.state !== 'menu' && songT > 0) {
       const O = A.onsets; let lo = 0, hi = O.length - 1, kk = -1;
       while (lo <= hi) { const m = (lo + hi) >> 1; if (O[m].t <= songT + 0.02) { kk = m; lo = m + 1; } else hi = m - 1; }
-      for (let q = kk; q >= 0 && q > kk - 10; q--) { const o = O[q], age = Math.max(0, songT - o.t); if (age > 0.5) break; const e = Math.min(1.2, o.s) * Math.exp(-age * 7.5), kw = clamp((o.lo - 0.3) / 0.25, 0, 1), hw = clamp((o.hi - 0.4) / 0.25, 0, 1); kickE += e * (0.1 + 1.15 * kw * kw * (3 - 2 * kw) + 0.2 * o.lo); snapE += e * (0.12 + 0.95 * (1 - kw) * (1 - 0.75 * hw) * (0.4 + o.mid + 0.5 * o.hi)); hatE += 2.2 * e * hw * (1 - kw); }
+      for (let q = Math.min(O.length - 1, kk + 3); q >= 0 && q > kk - 10; q--) { const o = O[q], dtq = songT - o.t, age = Math.max(0, dtq); if (age > 0.5) break; if (dtq < -0.07) continue; const acc = o.pos === 0 ? 1.3 : o.pos === 2 ? 1.1 : 1, e = Math.min(1.2, o.s) * acc * (dtq < 0 ? 0.55 * (1 + dtq / 0.07) : Math.exp(-age * 7.5)), kw = clamp((o.lo - 0.3) / 0.25, 0, 1), hw = clamp((o.hi - 0.4) / 0.25, 0, 1); kickE += e * (0.1 + 1.15 * kw * kw * (3 - 2 * kw) + 0.2 * o.lo); snapE += e * (o.pos === 1 || o.pos === 3 ? 1.22 : 1) * (0.12 + 0.95 * (1 - kw) * (1 - 0.75 * hw) * (0.4 + o.mid + 0.5 * o.hi)); hatE += 2.2 * e * hw * (1 - kw); }
     } else if (!A) { kickE = pulse * 0.6; snapE = 0; }
+    { const P = PERSONA[((sc.cur | 0) * 7 + 3) % PERSONA.length]; kickE *= P[0]; snapE *= P[1]; hatE *= P[2]; }          // every world listens a little differently: some punch on the kick, some snap, some shimmer
     kickE = Math.min(1.4, kickE); snapE = Math.min(1.4, snapE); hatE = Math.min(1.2, hatE);
+    { const ci = g.state === 'playing' && A ? clamp(1 - g.intensity / 0.3, 0, 1) : 0; this.calm = (this.calm || 0) + (ci - (this.calm || 0)) * Math.min(1, dt * (ci > (this.calm || 0) ? 0.8 : 2.5));          // a quiet passage settles the world so the next loud part hits harder
+      const bfB = (((songT - phase - ((A && A.down) | 0) * period) / (period * 4)) % 1 + 1) % 1; this.barE = (A && g.state === 'playing' && songT > 0 ? Math.exp(-bfB * 5) * (0.35 + 0.65 * (this.kpres || 0)) : 0) * (1 - 0.7 * this.calm); }
+
     this.kpres = Math.max(Math.min(1, kickE), (this.kpres || 0) * Math.exp(-dt / 1.6)); const gridW = A ? 0.3 + 0.7 * this.kpres : 1;          // the beat-grid pulse only drives the sky while real kicks are playing: a breakdown goes quiet, the drop hits harder
     if (kickE > 0.85 && this.kick <= 0.85 && g.state === 'playing') this.burst((Math.random() - 0.5) * 4, 7, [this.curTheme.a1.x, this.curTheme.a1.y, this.curTheme.a1.z], 1.6, 2.0);
     if (this.od > 0.3 && kickE > 0.85 && this.kick <= 0.85 && g.state === 'playing') for (let i = 0; i < 2; i++) this.burst((Math.random() - 0.5) * 8, 2 + Math.random() * 6, [0.7, 0.95, 1], 1.8, 2.2);          // star power: lightning on every kick
@@ -3985,6 +4040,7 @@ const R = {
     this.kick = kickE; this.snap = snapE;
     const T = QUALITY_TIERS[this.quality], E = this.energyLane, inXR = !!UI.xr;
     const now = U.uTime.value = performance.now() * 0.001; U.uBeat.value = g.state === 'menu' ? 0.1 + 0.05 * Math.sin(now * 0.5) : (Settings.cFlash ? 0.4 : 1) * Math.min(1.3, (0.34 * pulse * gridW * (0.45 + 0.55 * g.intensity) + 0.8 * kickE + 0.4 * snapE) * (1 - 0.6 * clamp(((g.build || 0) - 0.7) / 0.3, 0, 1)) + 0.5 * (this.dropE || 0)); U.uPeriod.value = lpd; U.uPhase.value = lph; U.uInt.value = g.intensity + 0.45 * g.bt; U.uRush.value = (Settings.cFlash ? 0.5 : 1) * Math.min(1.2, (g.rush || 0) * 0.9 + (g.build || 0) * 0.3);
+    if (g.state !== 'menu') U.uBeat.value = Math.min(1.35, (U.uBeat.value + 0.22 * (this.barE || 0) * (Settings.cFlash ? 0.4 : 1)) * (1 - 0.35 * (this.calm || 0)));
     U.uTick.value = g.chart ? g.chart.tickDt : 0.12;
     this.od += ((g.odActive ? 1 : 0) - this.od) * Math.min(1, dt * 4); U.uOD.value = this.od;
     if (!!g.saber !== this._sbA) { this._sbA = !!g.saber; this._fpA = undefined; }
@@ -4014,6 +4070,7 @@ const R = {
     sc.tpop = 1;          // targets never pop out: each one keeps the shape and colour of its own section (see the notes loop)
     const k2 = Math.min(1, dt * 1.3), PS = PIL_STYLES[S.pil];
     sc.sides += (S.sides - sc.sides) * k2; sc.spin += (S.spin - sc.spin) * k2; sc.mount += (S.mount - sc.mount) * Math.min(1, dt * 0.8); sc.open += ((S.open || 1) - sc.open) * Math.min(1, dt * 0.7);
+    sc.gateK = (sc.gateK === undefined ? 1 : sc.gateK); sc.gateK += ((S.bare ? 0 : 1) - sc.gateK) * k2;          // bare worlds (just the sky) let the twisting rings fade away too
     const pl = sc.pil; pl.w += (PS.w - pl.w) * k2; pl.h += (PS.h - pl.h) * k2; pl.y += (PS.y - pl.y) * k2; pl.lat += (PS.lat - pl.lat) * k2;
     sc.spike = (sc.spike || 0) + ((S.pil === 5 ? 1 : 0) - (sc.spike || 0)) * k2; U.uSpike.value = sc.spike; U.uHor.value += ((S.horror ? 1 : 0) - U.uHor.value) * k2;
     sc.spinPh += dt * sc.spin * (0.6 + g.intensity * 1.6);
@@ -4042,7 +4099,7 @@ const R = {
     U.uFogColor.value.set(c.hz.x * 0.42 + c.zn.x * 0.3, c.hz.y * 0.42 + c.zn.y * 0.3, c.hz.z * 0.42 + c.zn.z * 0.3);
     if (this.hl > 0.01) { const f = U.uFogColor.value, h = this.hl * 0.6; f.set(f.x + (0.22 - f.x) * h, f.y * (1 - h), f.z * (1 - h)); }
     if (U.uMR.value > 0) U.uFogColor.value.multiplyScalar(1 - U.uMR.value);
-    U.uFogNear.value = 40 * clamp(0.5 + 0.5 * sc.open, 0.6, 1.35) * (1 - 0.45 * this.hl - 0.5 * tw * fkk0) * (1 + 0.5 * dfe); U.uFogFar.value = 172 * clamp(0.55 + 0.45 * sc.open, 0.62, 1.0) * (1 - 0.3 * this.hl - 0.3 * tw * fkk0) * (1 + 0.35 * dfe);
+    U.uFogNear.value = 40 * clamp(0.5 + 0.5 * sc.open, 0.6, 1.35) * (1 - 0.45 * this.hl - 0.5 * tw * fkk0) * (1 + 0.5 * dfe); U.uFogFar.value = 196 * clamp(0.55 + 0.45 * sc.open, 0.62, 1.0) * (1 - 0.3 * this.hl - 0.3 * tw * fkk0) * (1 + 0.35 * dfe);
     { const hd = this._hd === undefined ? (this._hd = document.getElementById('hell')) : this._hd; if (hd) { const o = Math.round((Settings.cCalm ? 0 : this.hl) * 100) / 100; if (o !== this._ho) { this._ho = o; hd.style.opacity = o; } } }
     this.odPop = Math.max(0, (this.odPop || 0) - dt * 1.3); U.uRush.value = Math.max(U.uRush.value, this.od * 0.45, this.odPop * 1.1 * (Settings.cFlash ? 0.5 : 1), (this.whE || 0) * 0.9, this.sv * 0.5 * (Settings.cFlash ? 0.5 : 1));
     if (g.state === 'playing') {
@@ -4075,7 +4132,7 @@ const R = {
     const bkE = (g.saber || Settings.cSteady || Settings.cMotion) ? 0 : TrackShape.bankE(songT + 0.3), bank = (g.saber || Settings.cSteady) ? 0 : K * (clamp(g.kappa * 30 * (1 + 1.5 * bkE), -0.78, 0.78) + clamp(g.latVel * 0.028, -0.3, 0.3));
     this.rollA += (bank - this.rollA) * Math.min(1, dt * 6);
     const psiT = (g.saber || Settings.cSteady) ? 0 : this.evalS(this.shT, 9) * (inXR ? 0.55 : 1) * (Settings.corners === 'off' ? 0 : 1); this.yawA += (psiT - this.yawA) * Math.min(1, dt * 10);
-    this.rig.rotation.set(-Math.atan(this.subSlope), this.yawA, this.rollA + (g.roll || 0) + ((Settings.cMotion || Settings.cSteady) ? 0 : this.hl * 0.025 * Math.sin(now * 29)));       // g.roll: a barrel roll / inversion in the biggest sections
+    this.rig.rotation.set(-Math.atan(this.subSlope), this.yawA, this.rollA + (g.roll || 0) + (g.jRoll || 0) + ((Settings.cMotion || Settings.cSteady) ? 0 : this.hl * 0.025 * Math.sin(now * 29)));       // g.roll: a barrel roll / inversion in the biggest sections
     { const ox = ex - sxw, oz = ez - SHIP_Z, cp = Math.cos(-this.yawA), sp = Math.sin(-this.yawA);   // swing the camera round the ship, not round itself
       this.eye.set(sxw + ox * cp + oz * sp, ey, SHIP_Z - ox * sp + oz * cp).applyEuler(this.rig.rotation); }
     const bump = (0.018 * pulse * g.intensity + 0.05 * kickE + 0.025 * (g.rush || 0) + 0.02 * (g.build || 0) * Math.sin(now * 55)) * K * (fp ? 1 : 0.4) * (S.horror ? 1.7 : 1) * (1 + 1.5 * this.hl) * (Settings.cMotion ? 0 : 1) + (Settings.cMotion ? 0 : 1) * (0.09 * (this.odPop || 0) + 0.012 * (g.odActive ? Math.sin(now * 70) : 0)) * K;
@@ -4141,10 +4198,10 @@ const R = {
     const ga = this.gates.instanceMatrix.array, gc = this.gates.geometry.attributes.aCol.array;
     const step = period * sc.gs, barEvery = Math.max(1, Math.round(4 / sc.gs));
     let gi = 0; const kb0 = Math.ceil((songT - phase) / step - 0.3);
-    for (let kk = 0; gi < T.gates && kk < 90; kk++) {
+    for (let kk = 0; gi < (sc.gateK > 0.03 ? T.gates : 0) && kk < 90; kk++) {
       const kb = kb0 + kk, tb = phase + kb * step, d = (tb - songT) * speed;
       if (d > FAR) break; if (d < -5.5) continue;
-      const bar = (((kb % barEvery) + barEvery) % barEvery) === 0, s2 = bar ? 4.4 : 3.6, pop = 1 + (bar ? 0.12 : 0.05) * pulse + (bar ? 0.2 : 0.12) * kickE;
+      const bar = (((kb % barEvery) + barEvery) % barEvery) === 0, s2 = (bar ? 4.4 : 3.6) * sc.gateK, pop = 1 + (bar ? 0.12 : 0.05) * pulse + (bar ? 0.2 : 0.12) * kickE;
       this.pl(d, 0); setInstYZ(ga, gi, this.qx, Yf(d) + 1.7, this.qz, s2 * pop, -this.qt, sc.spinPh + kb * 0.33 + 0.25 * Math.sin(kb * 0.2 + now * 0.6) * g.intensity);
       const col = bar ? c.a2 : c.a1, br = bar ? 1.0 : 0.5; gc[gi * 3] = col.x * br; gc[gi * 3 + 1] = col.y * br; gc[gi * 3 + 2] = col.z * br; gi++;
     }
@@ -4169,7 +4226,7 @@ const R = {
       const wh = this.whT > 0, whE = wh ? Math.sin(Math.PI * clamp(1 - this.whT / 2.6, 0, 1)) : 0;
       this.whE = whE;
       const rest = window.__mrRestore, userSteady = rest ? rest.cSteady : Settings.cSteady, odW = !!g.odActive && g.state === 'playing' && !(Settings.cMotion || userSteady),          // passthrough's own calm override must never switch the star power tunnel off
-         wantStyle = odW ? 10 : wh ? 9 : (g.bt > 0.35 && g.state === 'playing') ? (S.horror ? 6 : 3) : S.tube, canTube = (this.quality < 2 || wantStyle === 9 || wantStyle === 10) && g.state !== 'menu';
+         wantStyle = odW ? 10 : wh ? 9 : (g.bt > 0.35 && g.state === 'playing') ? (S.horror ? 6 : 3) : g.journey && g.jTube === 2 ? 0 : (g.journey && g.jTube === 1 && !S.tube ? 1 : S.tube), canTube = (this.quality < 2 || wantStyle === 9 || wantStyle === 10) && g.state !== 'menu';
       const tgt = canTube && wantStyle > 0 && wantStyle === this.tubeStyle ? 1 : 0;
       if (this.tubeMix < 0.03 && wantStyle !== this.tubeStyle) this.tubeStyle = wantStyle; const odSwap = wantStyle === 10 && this.tubeStyle !== 10;          // star power takes over from any other tunnel quickly
       this.tubeMix += (tgt - this.tubeMix) * Math.min(1, dt * (odSwap ? 14 : tgt ? (this.tubeStyle === 10 ? 9 : this.tubeStyle === 9 ? 5 : 1.6) : ((this.tubeStyle === 9 || this.tubeStyle === 10) ? 5 : 3.2))); if (tgt === 0 && this.tubeMix < 0.01) this.tubeMix = 0;
@@ -4777,7 +4834,7 @@ Object.assign(R, {
         L.m.visible = true; L.m.position.set(0, P.y + 0.15 * 6.2, P.z - 6.2); L.m.scale.setScalar(fit(6.2, 7.2) * 0.6); } }
   },
   updateCreatures(X) {
-    const { g, S, dt, now, songT, speed, travel, phase, period, Yf, quality } = X, want = (g.boss && g.drive) ? null : (S.cr || null);
+    const { g, S, dt, now, songT, speed, travel, phase, period, Yf, quality } = X, want = (g.boss && g.drive) || S.bare ? null : (S.cr || null);
     if (want !== this.crCfg) { this.crMix -= dt * 2.4; if (this.crMix <= 0) { this.crMix = 0; this.crCfg = want; } } else if (want) this.crMix = Math.min(1, this.crMix + dt * 0.9);
     const cfg = this.crCfg, mix = this.crMix; const sm = mix * mix * (3 - 2 * mix);
     for (const k of CR_KINDS) this.crMeshes[k].count = 0;
@@ -5071,7 +5128,7 @@ const SKY_EXTRA = [
 }
 const Fresh = {
   pick(pick, I, rnd, useDark) {                                                    // some sections get one of the newer worlds; the scene mode settings still win
-    if (useDark || (Settings.scenes !== 'auto' && Settings.scenes !== 'trip') || rnd() > 0.4) return pick;
+    if (useDark || (Settings.scenes !== 'auto' && Settings.scenes !== 'trip') || rnd() > 0.35) return pick;
     const L = I < 0.4 ? NEW_SCENES.calm : I < 0.65 ? NEW_SCENES.mid : NEW_SCENES.high; return L[Math.floor(rnd() * 97) % L.length];
   }
 };
@@ -5111,6 +5168,21 @@ const Fresh = {
   add(NEW_SCENES.high, ['SOLAR FLARE', 'PRISM TUNNEL', 'VAPOR CITY', 'SPORE DISCO', 'PIXEL PARADISE', 'DEEP SPACE DINER', 'LIGHTHOUSE STORM']);
   add(HAPPY_SCENES, ['GOLDEN HOUR', 'SKY HARBOUR', 'PIXEL PARADISE', 'COTTON NEBULA', 'EMERALD AURORA', 'AMBER DESERT']);
   window.NEW_SCENES_MORE = { first: N0, count: N.length };
+}
+
+// ---------- balance: fewer tunnels and side props, and a set of bare worlds that are just the sky, the road and the music ----------
+{
+  const BARE = [0, 1, 11, 22, 23, 29, 30, 32, 33, 45, 63, 65, 67, 69, 71, 72];
+  const f = NEW_SCENES_MORE.first, nm = (n) => SCENES.findIndex(s => s.name === n);
+  ['GOLDEN HOUR', 'SKY HARBOUR', 'EMERALD AURORA', 'COTTON NEBULA', 'AMBER DESERT'].forEach(n => { const i = nm(n); if (i >= 0) BARE.push(i); });
+  ['PIXEL PARADISE', 'MOON MARKET', 'VAPOR CITY', 'GLASS GREENHOUSE', 'DEEP SPACE DINER'].forEach(n => { const S = SCENES[nm(n)]; if (S) S.tube = 0; });          // my fourteen new worlds had too many tunnels
+  for (let i = 0; i < 100; i++) {                                                    // the earlier retrofit gave a tunnel to every third open world and a dancer to every other one: keep about half of each
+    const S = SCENES[i], dark = DARK_SCENES.indexOf(i) >= 0 || S.scary; if (dark) continue;
+    if (S.tube >= 11 && i % 6 !== 1) S.tube = 0;
+    if (S.cr && S.cr.length === 1 && S.cr[0][1] === 'flank' && i % 4 !== 0 && i < 92) S.cr = null;
+  }
+  for (const i of BARE) { const S = SCENES[i]; if (!S) continue; S.bare = 1; S.pil = 4; S.tube = 0; S.cr = null; S.mount = 0; }
+  window.BARE_SCENES = BARE;
 }
 
 // ===== BEATSAVER: search, download, unzip and turn Beat Saber maps into charts for this game =====
@@ -5753,7 +5825,7 @@ const Input = {
   // ---------- flat ----------
   attachFlat(gl, ui) {
     const KEYS = { ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r' };
-    const ACT = { KeyZ: 'fire', KeyX: 'fire', KeyJ: 'fire', KeyK: 'fire', KeyE: 'overdrive', Space: 'ok', Enter: 'ok', Escape: 'back', KeyP: 'back', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', KeyR: 'restart', KeyC: 'recenter', KeyV: 'view' };
+    const ACT = { KeyZ: 'fire', KeyX: 'fire', KeyJ: 'fire', KeyK: 'fire', KeyE: 'overdrive', Space: 'ok', Enter: 'ok', Escape: 'back', KeyP: 'back', ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', KeyR: 'restart', KeyC: 'recenter', KeyV: 'view', KeyN: 'jnext', KeyB: 'jprev', KeyG: 'jdrop', KeyT: 'jwarp', KeyY: 'jtube', KeyU: 'jauto', KeyQ: 'jrollL', KeyF: 'jrollR' };
     addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (UI.screen === 'search') {        // the search page is a text field: typing goes to the query
@@ -5894,6 +5966,7 @@ const Input = {
       const h = this.hands[side], pv = this.prev[side]; if (!h) { pv.length = 0; continue; }
       const edge = (i) => h.btn[i] && !pv[i];
       if (playing) {
+        if (Game.journey && !Game.watch && edge(1)) this.push(side === 'left' ? 'jrollL' : 'jrollR');          // Journey: grips corkscrew the ship
         const gripS = Settings.control === 'grip' && !(Game.drive && side === this.gunSide());                    // grip steers, so it never fires overdrive
         if (!Game.drive && Game.flight && !Game.saber && Settings.skyBolt !== false && MR.on && Settings.view === 'cockpit' && edge(0) && h.d.y > 0.3 && h.o.y > this.head.y + 0.05) this.push('sky', { side, o: { x: h.o.x, y: h.o.y, z: h.o.z }, d: { x: h.d.x, y: h.d.y, z: h.d.z } });          // flight: a hand raised over the head + trigger / pinch launches a sky bolt instead of overdrive
         else if (Game.drive) { if ((!gripS && edge(1)) || edge(4)) this.push('overdrive'); if (edge(0)) { if (side === this.gunSide()) this.push('fire', { vr: side }); else this.push('overdrive'); } }   // drive-by: shoot with the aiming hand; the other hand steers, its trigger is overdrive
@@ -6773,6 +6846,7 @@ const HUD = {
       T(fmtTime(Math.max(0, G.songT)) + ' / ' + fmtTime(dur), 728, 100, UI.font(40, 800), C.tx, 'right');
       if (cd > 0) T('GET READY  ' + cd, 384, 170, UI.font(30, 800), C.tx, 'center');
       else if (btK) T('◆  BREAKTHROUGH  ◆', 384, 170, UI.font(26, 800), C.gd, 'center');
+      if (cd <= 0 && !btK) T(UI.xr ? 'Grip = corkscrew  ·  A / X / trigger = next world' : TOUCH ? 'Tap the buttons below to change the world' : 'N/B world  ·  Q/F roll  ·  G drop  ·  T warp  ·  Y tunnels  ·  U auto', 384, 170, UI.font(18, 600), C.dim, 'center');
       UI.rr.call({ g }, bx, 214, bw, 8, 4); g.fillStyle = 'rgba(255,255,255,0.1)'; g.fill(); UI.rr.call({ g }, bx, 214, Math.max(8, bw * clamp(G.songT / dur, 0, 1)), 8, 4); g.fillStyle = C.cy; g.fill();
       return true;
     }
@@ -7055,7 +7129,7 @@ const Live = {
     this.fluxRing = new Float32Array(17); this.tpoll = 0; this.est = { bpm: 120, n: 0 };
   },
 
-  newTrack() {                                                             // a synthetic hour: the renderer and road generator read it like a scanned song, and we fill the bands in as they happen
+  newTrack() { this.lastDrop = -99; this.dropK = -1;                                                             // a synthetic hour: the renderer and road generator read it like a scanned song, and we fill the bands in as they happen
     const nF = LIVE_MAX * LIVE_FPS, sr = LIVE_FPS * A_HOP, rnd = mulberry32(hashStr('live' + Date.now())), sections = []; let t = 0; while (t < LIVE_MAX - 40) { t += 26 + 16 * rnd(); sections.push(t); }
     const A = { version: A_VERSION, live: true, dur: LIVE_MAX, sr, hop: A_HOP / sr, nF, NB: A_NB, bands: new Uint8Array(nF * A_NB), loud: new Uint8Array(nF), bpm: 120, phase: 0, down: 0, onsets: [], sections, curve: new Float32Array(LIVE_MAX * 2 + 8).fill(0.55), beats: null };
     this.A = A; return { key: 'live' + ((Date.now() / 1000) | 0), name: 'Live audio', analysis: A, buffer: null, live: true };
@@ -7114,6 +7188,9 @@ const Live = {
     // loudness curve (0.5 s steps) for the section intensity, hills and bends
     this.refL = Math.max(0.2 * 200, loud, this.refL * 0.9997); this.curv += (clamp(loud / (0.9 * this.refL), 0, 1.2) - this.curv) * 0.04;
     const ck = Math.floor(T / 0.5); for (let k = ck; k <= Math.min(A.curve.length - 1, ck + 5); k++) A.curve[k] = this.curv;
+    if (ck !== this.dropK) { this.dropK = ck; const C = A.curve, m = (i0, i1) => { let q = 0, n = 0; for (let i = Math.max(0, i0); i < i1; i++) { q += C[i]; n++; } return n ? q / n : 0; };          // a drop heard live: loudness well above the last few seconds, after a quieter stretch
+      const after = m(ck - 3, ck + 1), before = m(ck - 16, ck - 4), d = after - before;
+      if (d > 0.2 && after > 0.4 && T - (this.lastDrop || -99) > 12 && T > 8 && Game.surges) { this.lastDrop = T; Game.surges.push({ t: T + 0.05, s: clamp(d / 0.32, 0.5, 1), fired: false, rise: 3.2 }); } }
     if (++this.tpoll >= LIVE_FPS) { this.tpoll = 0; this.tempo(T); }
   },
   tempo(T) {                                                               // tempo from the last ~12 s of onset strength (autocorrelation), beat phase by sliding a comb over it
@@ -7344,6 +7421,7 @@ Object.assign(UI, {
     const items = [['resume', '▶  Resume', { primary: true, size: P ? 36 : 28, weight: 800 }], ['restart', '↻  Restart', {}], ['gems', 'Gem sound:  ' + (Settings.collectSound ? 'ON' : 'OFF'), { sel: !Settings.collectSound }], ['hud', 'Info:  ' + ({ full: 'FULL', min: 'MINIMAL', off: 'OFF' }[Settings.hud] || 'FULL'), {}], ['view', 'View:  ' + (Settings.view === 'cockpit' ? 'COCKPIT' : 'CHASE'), {}], ['settings', 'Settings', {}]];
     if (mrOn) { items.push(['mrq', 'World:  ' + (MR.quick ? 'FULL VR' : 'PASSTHROUGH'), { sel: MR.quick }]); items.push(['mrplace', MR.place ? 'Move the track' : 'Place the track', {}]); }
     if (this.xr) { items.push(['recenter', 'Recenter view', {}]); items.push(['exitvr', '⏏  Exit VR', {}]); }
+    else if (this.xrOK) items.push(['vr', '🥽  Enter VR', { primary: true }]);
     items.push(['quit', 'Quit to menu', {}]);
     if (Party.inRound()) {                                                // in a Party the host's pause belongs to everyone
       const host = Party.role === 'host'; this.text(host ? 'Paused for everyone' : 'Paused by ' + (Party.pausedBy || 'the host'), UW / 2, y + (P ? 112 : 94), this.font(P ? 26 : 19, 700), C.gd, 'center');
@@ -7370,6 +7448,7 @@ Object.assign(UI, {
     this.text(head, UW / 2, P ? 72 : 66, this.font(P ? 38 : 34, 800), Game.failed ? C.red : C.cy, 'center');
     this.text(this.fit(Queue.run ? Queue.items().map(x => x.name).join('  ·  ') : (Game.track ? Game.track.name || '' : ''), UW - 80, this.font(P ? 24 : 22, 500)), UW / 2, P ? 108 : 100, this.font(P ? 24 : 22, 500), C.dim, 'center');
     if (!this.xr && !P) this.button('share', UW - 154, 22, 130, 44, '⇪ Share', { size: 20 });
+    if (!P) this.vrButton(this.xr ? UW - 184 : UW - 324, 22, 160, 44, { size: 19 });
     if (Party.on()) this.button('pt_rank', P ? 24 : 24, P ? 130 : 22, P ? UW - 48 : 160, P ? 64 : 44, '🏁  Party rankings', { size: P ? 26 : 19, primary: P });
     const gy = P ? (Party.on() ? 410 : 360) : 360;
     g.save(); g.shadowColor = gc; g.shadowBlur = 40; this.text(r.grade, P ? 150 : 230, gy, this.font(P ? 200 : 240, 900), gc, 'center'); g.restore();
@@ -8841,7 +8920,7 @@ const TUT_PAGES = [
     ['tip', 'Add Clone Hero songs from the flat page with the Clone Hero add options.']] },
   { id: 'journey', t: 'Journey', sub: 'Just the visuals', b: () => [
     ['p', 'No score, no failing. The autopilot flies and you just enjoy the music and the show.'],
-    ['li', 'Steer any time to take over, and let go to hand back to the autopilot.'], ['li', 'Great with Cockpit view, a headset, and a favourite song.'], ['li', 'You can also ride along with a saved ghost run from the Ghosts screen.'],
+    ['li', 'Steer any time to take over, and let go to hand back to the autopilot.'], ['li', 'Take the wheel of the show: N / B next or previous world (locks it), U back to auto, G drop, T warp, Y tunnels auto / always / off. On a phone use the buttons along the bottom; in a headset the grips corkscrew left and right, and A, X or a trigger skips to the next world. On a keyboard Q and F roll left and right.'], ['li', 'Great with Cockpit view, a headset, and a favourite song.'], ['li', 'You can also ride along with a saved ghost run from the Ghosts screen.'],
     ['h', 'Live audio (mic)'], ['p', 'On the Ready screen in Journey, tap Live audio. Play music on another device or speaker nearby and the road, colours and scenes follow the sound, with no song file needed.'], ['li', 'Tap Start listening and allow the microphone. The bar shows what it hears.'], ['li', 'Raise Sensitivity if the bar stays low; lower it in a noisy room.'], ['li', 'Speakers work best. Headphones cannot be heard. Nothing is recorded or sent anywhere.'], ['li', 'It reacts to the sound as it plays, so it feels a touch looser than a scanned song. It runs for up to an hour.'],
     ['tip', 'Scenes change with the song. Pick the scene style (including Happy only) in Settings.']] },
   { id: 'controls', t: 'Controls', sub: 'Pick your device', plat: true, b: (p) => p === 'vr' ? [
@@ -8965,7 +9044,7 @@ async function init() {
   renderer = new THREE.WebGLRenderer({ canvas: glEl, antialias: !TOUCH, alpha: true, powerPreference: 'high-performance', stencil: false });
   renderer.setPixelRatio(Gov.pr = Math.min(window.devicePixelRatio || 1, TOUCH ? 1.0 : 1.25)); renderer.setClearColor(0x000000, 1);
   renderer.xr.enabled = true; renderer.xr.setReferenceSpaceType('local-floor');
-  scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(68, 1, 0.05, 230); scene.add(camera);
+  scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(68, 1, 0.08, 260); scene.add(camera);
   await R.init(renderer, scene, camera, bootP);
   MR.init(renderer, scene, camera);
   await bootP(0.95, 'Menus and audio');
@@ -9006,7 +9085,8 @@ async function init() {
     }
     const tfi = $('tfire'); tfi.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); Input.fireHeld = true; Input.push('fire', {}); });
     const tfu = () => { Input.fireHeld = false; }; tfi.addEventListener('pointerup', tfu); tfi.addEventListener('pointercancel', tfu); tfi.addEventListener('pointerleave', tfu);
-    window.__touchUI = { tp, td, tf: tfi };
+    const jb = $('jbar'); if (jb) jb.querySelectorAll('button').forEach(b => b.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); Input.push(b.dataset.a); }));
+    window.__touchUI = { tp, td, tf: tfi, jb };
   }
   const unlock = () => {
     AudioEng.init(); AudioEng.resumeCtx();
@@ -9164,7 +9244,8 @@ function handleEvents(list) {
       case 'scroll': UI.scrollList(e.d); break;
       case 'gfret': if (st === 'playing' && Game.guitar) Game.gtrFret(e.mask); break;
       case 'gstrum': if (st === 'playing' && Game.guitar && !Game.watch) Game.gtrStrum(); break;
-      case 'overdrive': if (st === 'playing' && !Game.watch) Game.activateOverdrive(); break;
+      case 'overdrive': if (st === 'playing' && !Game.watch) { if (Game.journey) Game.jTool('next'); else Game.activateOverdrive(); } break;
+      case 'jrollL': case 'jrollR': case 'jnext': case 'jprev': case 'jdrop': case 'jwarp': case 'jtube': case 'jauto': if (st === 'playing' && !Game.watch) Game.jTool(e.a.slice(1)); break;
       case 'sky': if (st === 'playing' && !Game.watch) Game.skyBolt(e); break;
       case 'fire': if (st === 'playing' && Game.drive && (!Game.watch || Game.gunner)) driveFire(e); break;
       case 'pause': doPause(true); break;
@@ -9206,7 +9287,7 @@ function syncPresentation() {
   const inXR = !!XR.session, st = Game.state, sc = UI.screen, showHud = (st === 'playing' || st === 'paused') && Settings.hud !== 'off';
   const ui = uiEl.style, hud = hudEl.style;
   if (window.__fsBtn) { window.__fsBtn.className = st === 'playing' ? 'play' : ''; window.__fsBtn.style.display = inXR ? 'none' : 'block'; }
-  if (window.__touchUI) { const T = window.__touchUI, on = !inXR && st === 'playing', od = on && !Game.journey; if (T.tp.style.display !== (on ? 'block' : 'none')) T.tp.style.display = on ? 'block' : 'none'; if (T.td.style.display !== (od ? 'block' : 'none')) T.td.style.display = od ? 'block' : 'none'; const fr = on && Game.drive; if (T.tf.style.display !== (fr ? 'block' : 'none')) T.tf.style.display = fr ? 'block' : 'none'; const rd = Game.od >= 1 && !Game.odActive; if (T.td.classList.contains('rdy') !== rd) T.td.classList.toggle('rdy', rd); }
+  if (window.__touchUI) { const T = window.__touchUI, on = !inXR && st === 'playing', od = on && !Game.journey; if (T.tp.style.display !== (on ? 'block' : 'none')) T.tp.style.display = on ? 'block' : 'none'; if (T.td.style.display !== (od ? 'block' : 'none')) T.td.style.display = od ? 'block' : 'none'; const fr = on && Game.drive; if (T.tf.style.display !== (fr ? 'block' : 'none')) T.tf.style.display = fr ? 'block' : 'none'; if (T.jb) { const jo = on && Game.journey; if (T.jb.style.display !== (jo ? 'flex' : 'none')) T.jb.style.display = jo ? 'flex' : 'none'; } const rd = Game.od >= 1 && !Game.odActive; if (T.td.classList.contains('rdy') !== rd) T.td.classList.toggle('rdy', rd); }
   const d1 = (!inXR && sc) ? 'block' : 'none', d2 = (!inXR && st === 'playing' && Settings.hud !== 'off') ? 'block' : 'none';
   if (ui.display !== d1) ui.display = d1; if (hud.display !== d2) hud.display = d2;
   VRUI.setVisible(inXR && !!sc); VRUI.hud.visible = inXR && showHud;
@@ -9219,7 +9300,7 @@ function updateFlatCamera(dt, t) {
   const g = Game, sh = g.shake * g.shake, fp = R.fp, P = R.P;
   const cm = Settings.cMotion ? 0 : 1, jx = (Math.random() - 0.5) * 0.07 * sh * (fp ? 0.35 : 1) * cm, jy = (Math.random() - 0.5) * 0.05 * sh * (fp ? 0.35 : 1) * cm;
   if (P) { camera.position.set(P.x + jx, P.y + jy, P.z); if (g.saber) camera.lookAt(0, 1.2, -6); else if (fp) camera.lookAt(P.x, P.y, -10); else camera.lookAt(0, 0.55, -9); }
-  const f = baseFov + cm * ((fp ? 6 : 2) * R.pulse * g.intensity + (fp ? 6 : 4) * R.kick + (g.odActive ? 5 : 0) + 9 * g.bt + (fp ? 6 : 2) * clamp(g.intensity - 0.4, 0, 1) + 11 * g.rush - 3 * g.build);
+  const f = baseFov + cm * ((fp ? 6 : 2) * R.pulse * g.intensity + (fp ? 6 : 4) * R.kick + (g.odActive ? 5 : 0) + 9 * g.bt + (fp ? 6 : 2) * clamp(g.intensity - 0.4, 0, 1) + 11 * g.rush - 3 * g.build + 3 * (R.barE || 0));
   if (Math.abs(f - camera.fov) > 0.01) { camera.fov = f; camera.updateProjectionMatrix(); }
 }
 
